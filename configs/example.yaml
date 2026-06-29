@@ -1,0 +1,153 @@
+# Example configuration for Fancy LLM Router
+# Copy this to configs/local.yaml and customize for your environment
+
+# Application settings
+app:
+  name: fancy_llm_router
+  environment: development
+  debug: true
+  log_level: INFO
+  host: 0.0.0.0
+  port: 8000
+
+# Model configurations
+# Each model can have provider-specific settings
+models:
+  # OpenAI models
+  gpt-4:
+    provider: openai
+    model_id: gpt-4
+    name: GPT-4
+    api_key: ${OPENAI_API_KEY}
+    default_temperature: 0.7
+    default_max_tokens: 1024
+    input_token_price: 0.03
+    output_token_price: 0.06
+    context_window: 8192
+    timeout_seconds: 60
+    max_retries: 3
+    enabled: true
+
+  gpt-3.5-turbo:
+    provider: openai
+    model_id: gpt-3.5-turbo
+    name: GPT-3.5 Turbo
+    api_key: ${OPENAI_API_KEY}
+    default_temperature: 0.7
+    default_max_tokens: 1024
+    input_token_price: 0.0015
+    output_token_price: 0.002
+    context_window: 4096
+    timeout_seconds: 60
+    max_retries: 3
+    enabled: true
+
+  # Anthropic models
+  claude-3:
+    provider: anthropic
+    model_id: claude-3-sonnet-20240229
+    name: Claude 3 Sonnet
+    api_key: ${ANTHROPIC_API_KEY}
+    default_temperature: 0.7
+    default_max_tokens: 1024
+    input_token_price: 0.003
+    output_token_price: 0.015
+    context_window: 200000
+    timeout_seconds: 60
+    max_retries: 3
+    enabled: true
+
+  # Local models (for development/testing)
+  local-llama:
+    provider: local
+    model_id: llama-2-7b
+    name: Llama 2 7B (Local)
+    base_url: http://localhost:11434
+    default_temperature: 0.7
+    default_max_tokens: 512
+    input_token_price: 0.0
+    output_token_price: 0.0
+    context_window: 4096
+    timeout_seconds: 120
+    max_retries: 1
+    enabled: false
+
+# Tool configurations
+tools:
+  # Mock tools for testing
+  calculator:
+    module: fancy_llm_router.tools.mock
+    tool_id: calculator
+    name: Calculator
+    description: A simple calculator tool
+    enabled: true
+
+  web_search:
+    module: fancy_llm_router.tools.web
+    tool_id: web_search
+    name: Web Search
+    description: Search the web for information
+    api_endpoint: https://api.example.com/search
+    timeout_seconds: 10
+    enabled: false
+
+# Metrics configuration
+metrics:
+  enabled: true
+  track_token_usage: true
+  track_cost: true
+  track_latency: true
+  track_quality: true
+  track_model_drift: true
+  
+  # Quality evaluation
+  evaluate_relevance: true
+  evaluate_accuracy: true
+  evaluate_coherence: true
+  
+  # Drift detection
+  drift_detection_window_days: 30
+  drift_threshold: 0.1  # 10% change triggers alert
+  
+  # Benchmarking
+  benchmark_interval_hours: 24
+  benchmark_models:
+    - gpt-4
+    - claude-3
+
+# Storage configuration
+storage:
+  backend: sqlite
+  sqlite_path: data/metrics.db
+  retention_days: 365  # Keep metrics for 1 year
+
+# Router configuration
+router:
+  default_strategy: balanced
+  use_fallback: true
+  fallback_models:
+    - gpt-3.5-turbo
+    - gpt-4
+  
+  # Default routing criteria
+  default_criteria:
+    min_relevance_score: 0.7
+    min_accuracy_score: 0.7
+    min_coherence_score: 0.7
+    max_cost_usd: 1.0
+    max_latency_ms: 10000
+    
+    # Strategy weights (for BALANCED strategy)
+    cost_weight: 0.4
+    latency_weight: 0.3
+    quality_weight: 0.3
+  
+  # Caching
+  cache_responses: true
+  cache_ttl_seconds: 3600
+
+# Session configuration
+sessions:
+  max_concurrent: 10
+  default_timeout_seconds: 300
+  continue_on_failure: false
