@@ -15,6 +15,7 @@ from fancy_llm_router.schemas.prompts import (
     BaselineResult,
     BenchmarkMeasureRequest,
     DeploymentInfo,
+    DeploymentPairState,
     JudgeResult,
     MeasurementEnvelope,
     ResolvedPrompt,
@@ -105,6 +106,11 @@ class BenchmarkService:
         deployment_id = request.model
         if deployment_id not in self.router.list_models():
             raise ValueError(f"Unknown deployment: {deployment_id}")
+
+        if self.registry.is_deployment_blocked(request.root_id, deployment_id):
+            raise ValueError(
+                f"Deployment {deployment_id} is blocked for prompt {request.root_id}"
+            )
 
         if not request.root_id:
             request.root_id = f"adhoc-{prompt_hash(request.prompt, 8)}"
@@ -229,6 +235,13 @@ class BenchmarkService:
             if judge.pass_:
                 if variant_id:
                     self.registry.mark_variant_passed(variant_id)
+                pair_state = self.registry.get_pair_state(request.root_id, deployment_id)
+                if pair_state.state == DeploymentPairState.NEEDS_IMPROVEMENT:
+                    self.registry.set_pair_state(
+                        request.root_id,
+                        deployment_id,
+                        DeploymentPairState.PREFERRED,
+                    )
                 break
 
             if not optimize or attempt >= max_revisions - 1:
@@ -307,7 +320,12 @@ class BenchmarkService:
         )
         dep_ids = deployments or self.router.list_models()
         results: List[Dict[str, Any]] = []
+        skipped: List[str] = []
         for dep_id in dep_ids:
+            if self.registry.is_deployment_blocked(root_id, dep_id):
+                skipped.append(dep_id)
+                logger.info("Skipping blocked deployment %s for %s", dep_id, root_id)
+                continue
             envelope = await self.measure_deployment(
                 BenchmarkMeasureRequest(
                     root_id=root_id,
@@ -321,7 +339,48 @@ class BenchmarkService:
             )
             results.append(envelope.dict(by_alias=True))
         self.registry.complete_run(run_id)
-        return {"benchmark_run_id": run_id, "results": results}
+        return {"benchmark_run_id": run_id, "results": results, "skipped_blocked": skipped}
+
+    async def improve_deployment(
+        self,
+        root_id: str,
+        deployment_id: str,
+        *,
+        benchmark_run_id: Optional[str] = None,
+        max_revisions: int = 3,
+    ) -> MeasurementEnvelope:
+        """Re-optimize a prompt/deployment pair flagged as needing improvement."""
+        if deployment_id not in self.router.list_models():
+            raise ValueError(f"Unknown deployment: {deployment_id}")
+        if self.registry.is_deployment_blocked(root_id, deployment_id):
+            raise ValueError(
+                f"Deployment {deployment_id} is blocked for prompt {root_id}"
+            )
+
+        root = self.registry.get_root(root_id)
+        if root is None:
+            raise ValueError(f"Unknown prompt root: {root_id}")
+
+        self.registry.set_pair_state(
+            root_id,
+            deployment_id,
+            DeploymentPairState.NEEDS_IMPROVEMENT,
+        )
+
+        request = CompletionRequest(
+            intent="measure",
+            model=deployment_id,
+            prompt=root.generic_text,
+            root_id=root_id,
+            expected_answer=root.expected_answer,
+            category=root.category,
+            benchmark_run_id=benchmark_run_id or str(uuid.uuid4()),
+            optimize_on_fail=True,
+            max_revisions=max_revisions,
+            temperature=0.0,
+        )
+        envelope, _response, _decision = await self.measure_request(request)
+        return envelope
 
     async def _execute_with_metrics(
         self,

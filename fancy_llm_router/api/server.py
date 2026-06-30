@@ -17,6 +17,7 @@ from fancy_llm_router.core.config_loader import (
     find_default_config,
     create_storage_from_config,
     get_storage_db_path,
+    build_app_config,
 )
 from fancy_llm_router.core.benchmark_service import BenchmarkService
 from fancy_llm_router.core.analytics_service import AnalyticsService
@@ -24,6 +25,7 @@ from fancy_llm_router.metrics.collector import MetricsCollector
 from fancy_llm_router.core.prompt_registry import PromptRegistry
 from fancy_llm_router.tools.base import ToolRegistry
 from fancy_llm_router.api.routes import router as api_router
+from fancy_llm_router.api.auth import ApiKeyMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,14 @@ async def lifespan(app: FastAPI):
     storage = await create_storage_from_config(config_dict)
     app.state.metrics = MetricsCollector(storage=storage)
     app.state.tools = ToolRegistry()
-    app.state.config = AppConfig()
+    app.state.config = build_app_config(config_dict)
+
+    if app.state.config.api_auth_token:
+        logger.info("API key authentication enabled for /api/v1 routes")
+    elif app.state.config.environment == "production":
+        logger.warning(
+            "api_auth_token is not set — /api/v1 is open on this public deployment"
+        )
 
     db_path = get_storage_db_path(config_dict)
     app.state.prompt_registry = PromptRegistry(db_path=db_path)
@@ -131,6 +140,7 @@ def create_app(
 
     app.state.config_path = config_path
 
+    app.add_middleware(ApiKeyMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -161,6 +171,7 @@ def create_app(
             "docs": "/docs",
             "health": "/health",
             "analytics": "/analytics",
+            "compare": "/compare",
         }
 
     static_dir = Path(__file__).resolve().parent.parent / "static"
@@ -170,6 +181,13 @@ def create_app(
         dashboard = static_dir / "analytics.html"
         if not dashboard.is_file():
             raise HTTPException(status_code=404, detail="Analytics dashboard not found")
+        return FileResponse(dashboard, media_type="text/html")
+
+    @app.get("/compare", include_in_schema=False)
+    async def compare_dashboard():
+        dashboard = static_dir / "compare.html"
+        if not dashboard.is_file():
+            raise HTTPException(status_code=404, detail="Compare dashboard not found")
         return FileResponse(dashboard, media_type="text/html")
 
     @app.get("/favicon.ico", include_in_schema=False)

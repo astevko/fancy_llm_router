@@ -125,7 +125,9 @@ Every request logs:
 - **CLI**: `uv run fancy-llm benchmark -r small-01 -p "What is the capital of France?" -e Paris`
 - **API**: `POST /api/v1/benchmark/baseline`, `GET /api/v1/analytics/baseline/{run_id}`
 - **Dashboard**: `http://localhost:8000/analytics` — parent prompt, tuned variant, response, and telemetry per deployment, with per-root summaries for cost, latency, and tokens
-- **Summary API**: `GET /api/v1/analytics/runs`, `GET /api/v1/analytics/baseline/{run_id}/summary`
+- **Compare view**: `http://localhost:8000/compare` — pick a parent prompt and deployment, flag operator state, and review benchmark run history
+- **Pair states** (`blocked`, `preferred`, `needs_improvement`): set from compare UI or API; blocked deployments are skipped by the burner; preferred uses the tuned variant on infer; **Optimize now** re-runs measure+optimizer for that pair
+- **Summary API**: `GET /api/v1/analytics/runs`, `GET /api/v1/analytics/baseline/{run_id}/summary`, `GET /api/v1/analytics/roots`, `GET /api/v1/analytics/roots/{root_id}/deployments`, `GET /api/v1/analytics/roots/{root_id}/deployments/{deployment_id}/history`, `PUT .../state`, `POST .../improve`
 
 ### 4. Session Management
 - Chain multiple prompts together
@@ -151,6 +153,29 @@ curl -s -X POST http://localhost:8000/api/v1/complete \
   -H 'Content-Type: application/json' \
   -d '{"prompt": "Hello", "max_tokens": 50}'
 ```
+
+### API key authentication (public deployments)
+
+When exposing the router on the public internet, set a shared key on the server
+and send it from every client:
+
+```bash
+# server .env
+ROUTER_API_KEY=your-long-random-secret
+
+# configs/local.yaml (or any served config)
+app:
+  api_auth_token: ${ROUTER_API_KEY}
+```
+
+Clients authenticate with either header:
+
+- `Authorization: Bearer <ROUTER_API_KEY>`
+- `X-API-Key: <ROUTER_API_KEY>`
+
+`/health`, `/`, and API docs stay open. All `/api/v1/*` routes require the key
+when `api_auth_token` is set. If unset, the API remains open (fine for local mock
+configs).
 
 The [Simple Token Burner](../simple_token_burner_app) app can drive this server via
 its `router` provider:

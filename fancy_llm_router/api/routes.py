@@ -17,6 +17,7 @@ from fancy_llm_router.schemas.sessions import SessionConfig, SessionState
 from fancy_llm_router.schemas.prompts import (
     BenchmarkMeasureRequest,
     BenchmarkRunRequest,
+    SetDeploymentPairStateRequest,
 )
 from fancy_llm_router.core.router import LLMRouter
 from fancy_llm_router.core.benchmark_service import BenchmarkService
@@ -198,6 +199,98 @@ async def get_baseline_summary(
     if summary is None:
         raise HTTPException(status_code=404, detail=f"No analytics for run {run_id}")
     return summary.dict()
+
+
+@router.get("/analytics/roots", summary="List measured parent prompts")
+async def list_analytics_roots(
+    limit: int = 100,
+    analytics: AnalyticsService = Depends(get_analytics),
+) -> dict:
+    roots = analytics.list_roots(limit=limit)
+    return {"count": len(roots), "roots": [r.dict() for r in roots]}
+
+
+@router.get("/analytics/roots/{root_id}/deployments", summary="List deployments measured for a prompt")
+async def list_root_deployments(
+    root_id: str,
+    analytics: AnalyticsService = Depends(get_analytics),
+) -> dict:
+    deployments = analytics.list_deployments_for_root(root_id)
+    if not deployments:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No deployments measured for prompt {root_id}",
+        )
+    return {"root_id": root_id, "count": len(deployments), "deployments": [d.dict() for d in deployments]}
+
+
+@router.get(
+    "/analytics/roots/{root_id}/deployments/{deployment_id}/history",
+    summary="Benchmark run history for a prompt + deployment pair",
+)
+async def get_prompt_deployment_history(
+    root_id: str,
+    deployment_id: str,
+    analytics: AnalyticsService = Depends(get_analytics),
+) -> dict:
+    history = analytics.get_prompt_deployment_history(root_id, deployment_id)
+    if history is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No measurements for {root_id} on {deployment_id}",
+        )
+    return history.dict()
+
+
+@router.get(
+    "/analytics/roots/{root_id}/deployments/{deployment_id}/state",
+    summary="Get operator state for a prompt + deployment pair",
+)
+async def get_deployment_pair_state(
+    root_id: str,
+    deployment_id: str,
+    registry: PromptRegistry = Depends(get_prompt_registry),
+) -> dict:
+    return registry.get_pair_state(root_id, deployment_id).dict()
+
+
+@router.put(
+    "/analytics/roots/{root_id}/deployments/{deployment_id}/state",
+    summary="Set operator state for a prompt + deployment pair",
+)
+async def set_deployment_pair_state(
+    root_id: str,
+    deployment_id: str,
+    body: SetDeploymentPairStateRequest,
+    registry: PromptRegistry = Depends(get_prompt_registry),
+) -> dict:
+    state = registry.set_pair_state(
+        root_id,
+        deployment_id,
+        body.state,
+        notes=body.notes,
+    )
+    return state.dict()
+
+
+@router.post(
+    "/analytics/roots/{root_id}/deployments/{deployment_id}/improve",
+    summary="Optimize prompt for a deployment using historical failures",
+)
+async def improve_deployment_pair(
+    root_id: str,
+    deployment_id: str,
+    benchmark: BenchmarkService = Depends(get_benchmark),
+) -> dict:
+    try:
+        envelope = await benchmark.improve_deployment(root_id, deployment_id)
+        state = benchmark.registry.get_pair_state(root_id, deployment_id)
+        return {
+            "measurement": envelope.dict(by_alias=True),
+            "state": state.dict(),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/chat", summary="Generate a chat completion")

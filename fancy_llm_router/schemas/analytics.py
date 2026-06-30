@@ -29,10 +29,11 @@ class DeploymentBreakdown(BaseModel):
 
 
 class MetricStats(BaseModel):
-    """Min / max / avg / total for a numeric metric."""
+    """Min / max / avg / median / total for a numeric metric."""
 
     total: float = 0.0
     avg: float = 0.0
+    median: float = 0.0
     min: float = 0.0
     max: float = 0.0
 
@@ -83,3 +84,70 @@ class BaselineRunInfo(BaseModel):
     completed_at: Optional[datetime] = None
     result_count: int = 0
     root_count: int = 0
+
+
+class RootPromptInfo(BaseModel):
+    """Parent prompt with cross-run measurement counts."""
+
+    root_id: str
+    generic_prompt: str
+    category: Optional[str] = None
+    expected_answer: Optional[str] = None
+    run_count: int = 0
+    result_count: int = 0
+    last_measured_at: Optional[datetime] = None
+
+
+class RunPromptBreakdown(BaseModel):
+    """One benchmark run's deployments for a single parent prompt."""
+
+    run_id: str
+    run_type: str = "smoke"
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    deployment_count: int = 0
+    pass_count: int = 0
+    fail_count: int = 0
+    cost: MetricStats = Field(default_factory=MetricStats)
+    latency_ms: MetricStats = Field(default_factory=MetricStats)
+    total_tokens: MetricStats = Field(default_factory=MetricStats)
+    by_deployment: List[DeploymentBreakdown] = Field(default_factory=list)
+
+
+class DeploymentOption(BaseModel):
+    """A deployment measured for a parent prompt."""
+
+    deployment_id: str
+    run_count: int = 0
+    pass_count: int = 0
+    fail_count: int = 0
+    last_measured_at: Optional[datetime] = None
+    state: str = "unset"
+
+
+class RunMeasurement(BaseModel):
+    """One benchmark run's result for a prompt + deployment pair."""
+
+    run_id: str
+    run_type: str = "smoke"
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    result: DeploymentBreakdown
+
+
+class PromptDeploymentHistory(BaseModel):
+    """All benchmark runs for one parent prompt on one deployment."""
+
+    root_id: str
+    generic_prompt: str
+    category: Optional[str] = None
+    expected_answer: Optional[str] = None
+    deployment_id: str
+    state: str = "unset"
+    run_count: int = 0
+    pass_count: int = 0
+    fail_count: int = 0
+    cost: MetricStats = Field(default_factory=MetricStats)
+    latency_ms: MetricStats = Field(default_factory=MetricStats)
+    total_tokens: MetricStats = Field(default_factory=MetricStats)
+    by_run: List[RunMeasurement] = Field(default_factory=list)

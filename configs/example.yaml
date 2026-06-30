@@ -9,6 +9,9 @@ app:
   log_level: INFO
   host: 0.0.0.0
   port: 8000
+  # Shared key clients must send as Authorization: Bearer <key> or X-API-Key.
+  # Set ROUTER_API_KEY in .env for public deployments.
+  # api_auth_token: ${ROUTER_API_KEY}
 
 # Model deployments
 #

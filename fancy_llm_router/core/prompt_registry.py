@@ -21,7 +21,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from fancy_llm_router.schemas.prompts import (
     BaselineResult,
     BaselineRun,
+    DeploymentPairState,
     JudgeResult,
+    PromptDeploymentState,
     PromptRoot,
     PromptVariant,
     ResolvedPrompt,
@@ -96,6 +98,16 @@ class BaselineResultDB(Base):
     is_canonical = Column(Boolean, default=False)
     created_at = Column(DateTime)
     metadata_json = Column(Text)
+
+
+class PromptDeploymentStateDB(Base):
+    __tablename__ = "prompt_deployment_states"
+
+    root_id = Column(String, primary_key=True)
+    deployment_id = Column(String, primary_key=True)
+    state = Column(String, default="unset", nullable=False)
+    notes = Column(Text)
+    updated_at = Column(DateTime)
 
 
 class PromptRegistry:
@@ -243,12 +255,37 @@ class PromptRegistry:
         try:
             root = session.get(PromptRootDB, root_id)
             generic = root.generic_text if root else generic_fallback
-            variant = (
-                session.query(PromptVariantDB)
-                .filter_by(root_id=root_id, deployment_id=deployment_id, judge_passed=True)
-                .order_by(PromptVariantDB.revision.desc())
-                .first()
-            )
+            pair_state = self._get_pair_state_row(session, root_id, deployment_id)
+            state = pair_state.state if pair_state else DeploymentPairState.UNSET.value
+
+            if state == DeploymentPairState.BLOCKED.value:
+                return ResolvedPrompt(
+                    root_id=root_id,
+                    deployment_id=deployment_id,
+                    generic_text=generic,
+                    prompt_text=generic,
+                    variant_id=None,
+                )
+
+            use_tuned = state in {
+                DeploymentPairState.PREFERRED.value,
+                DeploymentPairState.UNSET.value,
+            }
+            if state == DeploymentPairState.NEEDS_IMPROVEMENT.value:
+                use_tuned = False
+
+            variant = None
+            if use_tuned:
+                variant = (
+                    session.query(PromptVariantDB)
+                    .filter_by(
+                        root_id=root_id,
+                        deployment_id=deployment_id,
+                        judge_passed=True,
+                    )
+                    .order_by(PromptVariantDB.revision.desc())
+                    .first()
+                )
             if variant:
                 return ResolvedPrompt(
                     root_id=root_id,
@@ -264,6 +301,136 @@ class PromptRegistry:
                 prompt_text=generic,
                 variant_id=None,
             )
+        finally:
+            session.close()
+
+    @staticmethod
+    def _get_pair_state_row(session, root_id: str, deployment_id: str):
+        return (
+            session.query(PromptDeploymentStateDB)
+            .filter_by(root_id=root_id, deployment_id=deployment_id)
+            .first()
+        )
+
+    def get_pair_state(
+        self,
+        root_id: str,
+        deployment_id: str,
+    ) -> PromptDeploymentState:
+        session = self._session()
+        try:
+            row = self._get_pair_state_row(session, root_id, deployment_id)
+            if row is None:
+                return PromptDeploymentState(
+                    root_id=root_id,
+                    deployment_id=deployment_id,
+                    state=DeploymentPairState.UNSET,
+                )
+            return PromptDeploymentState(
+                root_id=row.root_id,
+                deployment_id=row.deployment_id,
+                state=DeploymentPairState(row.state),
+                updated_at=row.updated_at or datetime.utcnow(),
+                notes=row.notes,
+            )
+        finally:
+            session.close()
+
+    def list_pair_states(self, root_id: str) -> List[PromptDeploymentState]:
+        session = self._session()
+        try:
+            rows = (
+                session.query(PromptDeploymentStateDB)
+                .filter_by(root_id=root_id)
+                .order_by(PromptDeploymentStateDB.deployment_id.asc())
+                .all()
+            )
+            return [
+                PromptDeploymentState(
+                    root_id=row.root_id,
+                    deployment_id=row.deployment_id,
+                    state=DeploymentPairState(row.state),
+                    updated_at=row.updated_at or datetime.utcnow(),
+                    notes=row.notes,
+                )
+                for row in rows
+            ]
+        finally:
+            session.close()
+
+    def is_deployment_blocked(self, root_id: str, deployment_id: str) -> bool:
+        return (
+            self.get_pair_state(root_id, deployment_id).state
+            == DeploymentPairState.BLOCKED
+        )
+
+    def set_pair_state(
+        self,
+        root_id: str,
+        deployment_id: str,
+        state: DeploymentPairState,
+        notes: Optional[str] = None,
+    ) -> PromptDeploymentState:
+        session = self._session()
+        try:
+            if state == DeploymentPairState.PREFERRED:
+                session.query(PromptDeploymentStateDB).filter_by(
+                    root_id=root_id,
+                    state=DeploymentPairState.PREFERRED.value,
+                ).update(
+                    {
+                        "state": DeploymentPairState.UNSET.value,
+                        "updated_at": datetime.utcnow(),
+                    }
+                )
+
+            row = self._get_pair_state_row(session, root_id, deployment_id)
+            if state == DeploymentPairState.UNSET:
+                if row is not None:
+                    session.delete(row)
+                session.commit()
+                return PromptDeploymentState(
+                    root_id=root_id,
+                    deployment_id=deployment_id,
+                    state=DeploymentPairState.UNSET,
+                )
+
+            if row is None:
+                row = PromptDeploymentStateDB(
+                    root_id=root_id,
+                    deployment_id=deployment_id,
+                )
+                session.add(row)
+            row.state = state.value
+            row.notes = notes
+            row.updated_at = datetime.utcnow()
+            session.commit()
+            return PromptDeploymentState(
+                root_id=row.root_id,
+                deployment_id=row.deployment_id,
+                state=DeploymentPairState(row.state),
+                updated_at=row.updated_at,
+                notes=row.notes,
+            )
+        finally:
+            session.close()
+
+    def get_latest_result(
+        self,
+        root_id: str,
+        deployment_id: str,
+    ) -> Optional[BaselineResult]:
+        session = self._session()
+        try:
+            row = (
+                session.query(BaselineResultDB)
+                .filter_by(root_id=root_id, deployment_id=deployment_id)
+                .order_by(BaselineResultDB.created_at.desc())
+                .first()
+            )
+            if row is None:
+                return None
+            return self._result_from_row(row)
         finally:
             session.close()
 
@@ -413,6 +580,126 @@ class PromptRegistry:
                 .all()
             )
             return [self._result_from_row(r) for r in rows]
+        finally:
+            session.close()
+
+    def list_results_for_root(self, root_id: str) -> List[BaselineResult]:
+        session = self._session()
+        try:
+            rows = (
+                session.query(BaselineResultDB)
+                .filter_by(root_id=root_id)
+                .order_by(BaselineResultDB.created_at.desc())
+                .all()
+            )
+            return [self._result_from_row(r) for r in rows]
+        finally:
+            session.close()
+
+    def list_results_for_root_deployment(
+        self,
+        root_id: str,
+        deployment_id: str,
+    ) -> List[BaselineResult]:
+        session = self._session()
+        try:
+            rows = (
+                session.query(BaselineResultDB)
+                .filter_by(root_id=root_id, deployment_id=deployment_id)
+                .order_by(BaselineResultDB.created_at.desc())
+                .all()
+            )
+            return [self._result_from_row(r) for r in rows]
+        finally:
+            session.close()
+
+    def list_deployments_for_root(self, root_id: str) -> List[Dict[str, Any]]:
+        from sqlalchemy import func
+
+        session = self._session()
+        try:
+            rows = (
+                session.query(
+                    BaselineResultDB.deployment_id,
+                    func.count(BaselineResultDB.result_id),
+                    func.count(func.distinct(BaselineResultDB.run_id)),
+                    func.max(BaselineResultDB.created_at),
+                )
+                .filter_by(root_id=root_id)
+                .group_by(BaselineResultDB.deployment_id)
+                .order_by(func.max(BaselineResultDB.created_at).desc())
+                .all()
+            )
+            deployments: List[Dict[str, Any]] = []
+            for deployment_id, _result_count, run_count, last_at in rows:
+                pass_rows = (
+                    session.query(BaselineResultDB.result_id)
+                    .filter_by(
+                        root_id=root_id,
+                        deployment_id=deployment_id,
+                        judge_pass=True,
+                    )
+                    .count()
+                )
+                run_count = int(run_count or 0)
+                state_row = self._get_pair_state_row(session, root_id, deployment_id)
+                deployments.append(
+                    {
+                        "deployment_id": deployment_id,
+                        "run_count": run_count,
+                        "pass_count": int(pass_rows),
+                        "fail_count": run_count - int(pass_rows),
+                        "last_measured_at": last_at,
+                        "state": state_row.state if state_row else "unset",
+                    }
+                )
+            return deployments
+        finally:
+            session.close()
+
+    def list_measured_roots(self, limit: int = 100) -> List[Dict[str, Any]]:
+        from sqlalchemy import func
+
+        session = self._session()
+        try:
+            rows = (
+                session.query(
+                    BaselineResultDB.root_id,
+                    func.count(BaselineResultDB.result_id),
+                    func.count(func.distinct(BaselineResultDB.run_id)),
+                    func.max(BaselineResultDB.created_at),
+                )
+                .group_by(BaselineResultDB.root_id)
+                .order_by(func.max(BaselineResultDB.created_at).desc())
+                .limit(limit)
+                .all()
+            )
+            roots: List[Dict[str, Any]] = []
+            for root_id, result_count, run_count, last_at in rows:
+                meta = self.get_root(root_id)
+                sample = (
+                    session.query(BaselineResultDB.generic_prompt)
+                    .filter_by(root_id=root_id)
+                    .order_by(BaselineResultDB.created_at.desc())
+                    .first()
+                )
+                generic_prompt = ""
+                if meta:
+                    generic_prompt = meta.generic_text
+                elif sample and sample[0]:
+                    generic_prompt = sample[0]
+                roots.append(
+                    {
+                        "root_id": root_id,
+                        "generic_prompt": generic_prompt,
+                        "category": meta.category if meta else None,
+                        "expected_answer": meta.expected_answer if meta else None,
+                        "run_count": int(run_count or 0),
+                        "result_count": int(result_count or 0),
+                        "last_measured_at": last_at,
+                    }
+                )
+            return roots
         finally:
             session.close()
 

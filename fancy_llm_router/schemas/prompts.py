@@ -1,9 +1,36 @@
 """Schemas for prompt lineage and baseline measurement."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+
+class DeploymentPairState(str, Enum):
+    """Operator flag for a parent prompt + deployment pair."""
+
+    UNSET = "unset"
+    BLOCKED = "blocked"
+    PREFERRED = "preferred"
+    NEEDS_IMPROVEMENT = "needs_improvement"
+
+
+class PromptDeploymentState(BaseModel):
+    """Persisted operator state for one prompt/deployment pair."""
+
+    root_id: str
+    deployment_id: str
+    state: DeploymentPairState = DeploymentPairState.UNSET
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    notes: Optional[str] = None
+
+
+class SetDeploymentPairStateRequest(BaseModel):
+    """Update operator state for a prompt/deployment pair."""
+
+    state: DeploymentPairState
+    notes: Optional[str] = None
 
 
 class PromptRoot(BaseModel):

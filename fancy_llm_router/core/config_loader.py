@@ -204,3 +204,26 @@ def get_storage_db_path(config: Dict[str, Any]) -> str:
         or storage_cfg.get("db_path")
         or "data/metrics.db"
     )
+
+
+def build_app_config(config_dict: Optional[Dict[str, Any]] = None) -> "AppConfig":
+    """Merge YAML app settings and environment into ``AppConfig``."""
+    from fancy_llm_router.schemas.config import AppConfig
+
+    _ensure_dotenv_loaded()
+    cfg = AppConfig()
+    token = cfg.api_auth_token
+
+    if config_dict:
+        app_section = config_dict.get("app") or {}
+        yaml_token = app_section.get("api_auth_token") or config_dict.get("api_auth_token")
+        if yaml_token and str(yaml_token).strip():
+            token = str(yaml_token).strip()
+
+    if not token:
+        env_token = os.environ.get("ROUTER_API_KEY")
+        if env_token and env_token.strip():
+            token = env_token.strip()
+
+    cfg.api_auth_token = token if token and str(token).strip() else None
+    return cfg

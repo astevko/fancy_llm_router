@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/favicon.ico" />
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242836;
+      --border: #2e3345;
+      --text: #e8eaef;
+      --muted: #9aa3b5;
+      --accent: #6c8cff;
+      --pass: #3ecf8e;
+      --fail: #f07178;
+      --warn: #e6c07b;
+      --mono: "SF Mono", "Fira Code", "Consolas", monospace;
+      --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    header {
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 1.25rem 2rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header p { color: var(--muted); font-size: 0.875rem; }
+    .nav-links { display: flex; gap: 1rem; margin-top: 0.35rem; font-size: 0.85rem; }
+    .nav-links a { color: var(--accent); text-decoration: none; }
+    .nav-links a:hover { text-decoration: underline; }
+    .nav-links a.active { color: var(--text); font-weight: 600; pointer-events: none; }
+    .controls {
+      display: flex;
+      align-items: flex-end;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .stepper {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .stepper-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .stepper-row select { flex: 1; min-width: 200px; }
+    .step-btn {
+      padding: 0.5rem 0.65rem;
+      line-height: 1;
+      font-size: 1rem;
+      min-width: 2rem;
+    }
+    .step-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    select, button {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      font: inherit;
+      font-size: 0.9rem;
+      max-width: 280px;
+    }
+    button { cursor: pointer; max-width: none; }
+    button:hover { border-color: var(--accent); }
+    main { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+    .prompt-hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .prompt-hero .root-id {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      color: var(--accent);
+      margin-bottom: 0.35rem;
+    }
+    .prompt-hero .deployment-id {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+    .prompt-hero .parent-prompt {
+      font-size: 1.05rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .prompt-hero .meta {
+      margin-top: 0.75rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .run-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+    }
+    .stat-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-card .value { font-size: 1.35rem; font-weight: 600; margin-top: 0.25rem; }
+    .stat-card .sub { font-size: 0.8rem; color: var(--muted); margin-top: 0.15rem; }
+    .run-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    .run-card.open .run-body { display: block; }
+    .run-card.open .chevron { transform: rotate(90deg); }
+    .run-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+    .run-header:hover { background: var(--surface2); }
+    .run-when { font-size: 0.85rem; color: var(--muted); }
+    .run-id { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); margin-top: 0.2rem; }
+    .run-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .badge {
+      font-size: 0.75rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .badge.pass { color: var(--pass); border-color: rgba(62,207,142,0.4); }
+    .badge.fail { color: var(--fail); border-color: rgba(240,113,120,0.4); }
+    .badge.warn { background: rgba(230, 192, 123, 0.12); color: var(--warn); border-color: rgba(230, 192, 123, 0.35); }
+    .chevron { transition: transform 0.15s; color: var(--muted); }
+    .run-body {
+      padding: 1.25rem;
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .run-card.open .run-body { display: grid; }
+    @media (max-width: 800px) {
+      .run-card.open .run-body { grid-template-columns: 1fr; }
+    }
+    .field-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+    }
+    .text-block {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem 0.7rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .telemetry {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.35rem 0.75rem;
+      font-size: 0.78rem;
+      font-family: var(--mono);
+      margin-top: 0.75rem;
+    }
+    .telemetry span { color: var(--muted); }
+    .judge-pass { color: var(--pass); }
+    .judge-fail { color: var(--fail); }
+    .judge-warn { color: var(--warn); }
+    .warn-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+    .empty, .loading, .error {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--muted);
+    }
+    .error { color: var(--fail); }
+    h2.section {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin: 0 0 1rem;
+    }
+    .metric-block h3 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 0.6rem;
+    }
+    .metric-row {
+      display: grid;
+      grid-template-columns: 100px 1fr 80px;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.45rem;
+      font-size: 0.8rem;
+    }
+    .metric-row .when { font-family: var(--mono); color: var(--muted); font-size: 0.72rem; }
+    .bar-track {
+      height: 8px;
+      background: var(--surface2);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .bar-fill.solo {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #8b5cf6);
+      border-radius: 4px;
+      min-width: 2px;
+    }
+    .metric-row .num { text-align: right; font-family: var(--mono); }
+    .timeline-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    .state-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      justify-content: space-between;
+    }
+    .state-panel .state-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .state-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .state-btn {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.45rem 0.7rem;
+      font: inherit;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .state-btn:hover { border-color: var(--accent); }
+    .state-btn.primary { border-color: rgba(62,207,142,0.5); color: var(--pass); }
+    .state-btn.warn { border-color: rgba(230,192,123,0.5); color: var(--warn); }
+    .state-btn.danger { border-color: rgba(240,113,120,0.5); color: var(--fail); }
+    .badge.blocked { color: var(--fail); border-color: rgba(240,113,120,0.4); }
+    .badge.preferred { color: var(--pass); border-color: rgba(62,207,142,0.4); }
+    .badge.needs { color: var(--warn); border-color: rgba(230,192,123,0.4); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Prompt + Deployment History</h1>
+      <p>Pick a parent prompt and deployment, then compare benchmark runs over time</p>
+      <nav class="nav-links">
+        <a href="/analytics">By benchmark run</a>
+        <a href="/compare" class="active">By prompt + deployment</a>
+      </nav>
+    </div>
+    <div class="controls">
+      <div class="stepper">
+        <label for="root-select">Prompt</label>
+        <div class="stepper-row">
+          <button id="root-prev" type="button" class="step-btn" aria-label="Previous prompt" disabled>‹</button>
+          <select id="root-select" disabled>
+            <option value="">Loading…</option>
+          </select>
+          <button id="root-next" type="button" class="step-btn" aria-label="Next prompt" disabled>›</button>
+        </div>
+      </div>
+      <div class="stepper">
+        <label for="deployment-select">Deployment</label>
+        <div class="stepper-row">
+          <button id="deployment-prev" type="button" class="step-btn" aria-label="Previous deployment" disabled>‹</button>
+          <select id="deployment-select" disabled>
+            <option value="">Select a prompt first</option>
+          </select>
+          <button id="deployment-next" type="button" class="step-btn" aria-label="Next deployment" disabled>›</button>
+        </div>
+      </div>
+      <button id="refresh-btn" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="status" class="loading">Loading…</div>
+    <div id="prompt-hero" hidden></div>
+    <div id="state-panel" hidden></div>
+    <div id="summary" hidden></div>
+    <div id="timeline" hidden></div>
+    <div id="runs"></div>
+  </main>
+
+  <script>
+    const rootSelect = document.getElementById("root-select");
+    const deploymentSelect = document.getElementById("deployment-select");
+    const rootPrevBtn = document.getElementById("root-prev");
+    const rootNextBtn = document.getElementById("root-next");
+    const deploymentPrevBtn = document.getElementById("deployment-prev");
+    const deploymentNextBtn = document.getElementById("deployment-next");
+    const refreshBtn = document.getElementById("refresh-btn");
+    const statusEl = document.getElementById("status");
+    const promptHeroEl = document.getElementById("prompt-hero");
+    const statePanelEl = document.getElementById("state-panel");
+    const summaryEl = document.getElementById("summary");
+    const timelineEl = document.getElementById("timeline");
+    const runsEl = document.getElementById("runs");
+
+    const api = (path, retried = false, options = {}) => {
+      const headers = { ...(options.headers || {}) };
+      const key = sessionStorage.getItem("router_api_key");
+      if (key) headers["Authorization"] = `Bearer ${key}`;
+      return fetch(path, { ...options, headers }).then(async (r) => {
+        if (r.status === 401 && !retried) {
+          const entered = window.prompt("Router API key required:");
+          if (entered) {
+            sessionStorage.setItem("router_api_key", entered.trim());
+            return api(path, true, options);
+          }
+        }
+        if (!r.ok) {
+          let detail = `${r.status} ${r.statusText}`;
+          try {
+            const body = await r.json();
+            detail = body.detail || detail;
+          } catch (_) {}
+          throw new Error(detail);
+        }
+        if (r.status === 204) return null;
+        const text = await r.text();
+        return text ? JSON.parse(text) : null;
+      });
+    };
+
+    const apiJson = (path, method, body, retried = false) => api(
+      path,
+      retried,
+      {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body == null ? undefined : JSON.stringify(body),
+      },
+    );
+
+    function fmtCost(n) {
+      if (n == null || Number.isNaN(n)) return "—";
+      if (n === 0) return "$0";
+      if (n < 0.000001) return `$${n.toExponential(2)}`;
+      if (n < 0.01) return `$${n.toFixed(8)}`;
+      return `$${n.toFixed(6)}`;
+    }
+
+    function fmtNum(n, digits = 1) {
+      if (n == null) return "—";
+      return Number(n).toLocaleString(undefined, { maximumFractionDigits: digits });
+    }
+
+    function fmtLatency(ms) {
+      if (ms == null) return "—";
+      if (ms < 1000) return `${fmtNum(ms, 0)} ms`;
+      return `${fmtNum(ms / 1000, 2)} s`;
+    }
+
+    function fmtWhen(iso) {
+      if (!iso) return "unknown";
+      return new Date(iso).toLocaleString();
+    }
+
+    function fmtShortWhen(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function statCard(label, value, sub = "") {
+      return `<div class="stat-card"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+    }
+
+    function urlParams() {
+      return new URLSearchParams(window.location.search);
+    }
+
+    function setUrl(rootId, deploymentId) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("root", rootId);
+      url.searchParams.set("deployment", deploymentId);
+      window.history.replaceState({}, "", url);
+    }
+
+    function selectableOptions(select) {
+      return Array.from(select.options).filter((opt) => opt.value);
+    }
+
+    function stepSelect(select, delta) {
+      const options = selectableOptions(select);
+      if (options.length <= 1) return null;
+      const idx = Math.max(0, options.findIndex((opt) => opt.value === select.value));
+      const next = (idx + delta + options.length) % options.length;
+      select.value = options[next].value;
+      return select.value;
+    }
+
+    function updateSteppers() {
+      const rootCount = selectableOptions(rootSelect).length;
+      const depCount = selectableOptions(deploymentSelect).length;
+      rootPrevBtn.disabled = rootSelect.disabled || rootCount <= 1;
+      rootNextBtn.disabled = rootSelect.disabled || rootCount <= 1;
+      deploymentPrevBtn.disabled = deploymentSelect.disabled || depCount <= 1;
+      deploymentNextBtn.disabled = deploymentSelect.disabled || depCount <= 1;
+    }
+
+    function stateBadge(state) {
+      const labels = {
+        unset: ["Unset", ""],
+        blocked: ["Blocked", "blocked"],
+        preferred: ["Preferred", "preferred"],
+        needs_improvement: ["Needs improvement", "needs"],
+      };
+      const [label, cls] = labels[state] || [state, ""];
+      return cls ? `<span class="badge ${cls}">${label}</span>` : `<span class="badge">${label}</span>`;
+    }
+
+    function renderStatePanel(data) {
+      statePanelEl.hidden = false;
+      const state = data.state || "unset";
+      statePanelEl.innerHTML = `<div class="state-panel">
+        <div>
+          <div class="state-label">Operator state</div>
+          <div style="margin-top:0.35rem">${stateBadge(state)}</div>
+        </div>
+        <div class="state-actions">
+          <button type="button" class="state-btn primary" data-state="preferred">Mark preferred</button>
+          <button type="button" class="state-btn warn" data-action="improve">Optimize now</button>
+          <button type="button" class="state-btn danger" data-state="blocked">Block benchmarks</button>
+          <button type="button" class="state-btn" data-state="unset">Clear flags</button>
+        </div>
+      </div>`;
+
+      statePanelEl.querySelectorAll("[data-state]").forEach((btn) => {
+        btn.addEventListener("click", () => setPairState(data.root_id, data.deployment_id, btn.dataset.state));
+      });
+      statePanelEl.querySelector("[data-action=improve]").addEventListener("click", () => {
+        runImprove(data.root_id, data.deployment_id);
+      });
+    }
+
+    async function setPairState(rootId, deploymentId, state) {
+      try {
+        await apiJson(
+          `/api/v1/analytics/roots/${encodeURIComponent(rootId)}/deployments/${encodeURIComponent(deploymentId)}/state`,
+          "PUT",
+          { state },
+        );
+        await loadDeployments(rootId, deploymentId);
+        await loadHistory(rootId, deploymentId);
+      } catch (err) {
+        statusEl.className = "error";
+        statusEl.hidden = false;
+        statusEl.textContent = err.message;
+      }
+    }
+
+    async function runImprove(rootId, deploymentId) {
+      statusEl.className = "loading";
+      statusEl.textContent = "Running optimization…";
+      statusEl.hidden = false;
+      try {
+        await apiJson(
+          `/api/v1/analytics/roots/${encodeURIComponent(rootId)}/deployments/${encodeURIComponent(deploymentId)}/improve`,
+          "POST",
+          null,
+        );
+        await loadDeployments(rootId, deploymentId);
+        await loadHistory(rootId, deploymentId);
+        statusEl.hidden = true;
+      } catch (err) {
+        statusEl.className = "error";
+        statusEl.hidden = false;
+        statusEl.textContent = err.message;
+      }
+    }
+
+    function renderHero(data) {
+      promptHeroEl.hidden = false;
+      const category = data.category ? `<span class="badge">${escapeHtml(data.category)}</span>` : "";
+      const expected = data.expected_answer
+        ? `<span>Expected: <code>${escapeHtml(data.expected_answer)}</code></span>`
+        : "";
+      promptHeroEl.innerHTML = `<div class="prompt-hero">
+        <div class="root-id">${escapeHtml(data.root_id)}</div>
+        <div class="deployment-id">${escapeHtml(data.deployment_id)}</div>
+        <div class="parent-prompt">${escapeHtml(data.generic_prompt)}</div>
+        <div class="meta">${category} ${expected}</div>
+      </div>`;
+    }
+
+    function renderSummary(data) {
+      summaryEl.hidden = false;
+      summaryEl.innerHTML = `<div class="run-meta">
+        ${statCard("Benchmark runs", data.run_count)}
+        ${statCard("Judge pass", `${data.pass_count} / ${data.run_count}`, `${data.fail_count} failed`)}
+        ${statCard("Median latency", fmtLatency(data.latency_ms.median), `min ${fmtLatency(data.latency_ms.min)} · max ${fmtLatency(data.latency_ms.max)}`)}
+        ${statCard("Total cost", fmtCost(data.cost.total), `min ${fmtCost(data.cost.min)} · max ${fmtCost(data.cost.max)}`)}
+        ${statCard("Tokens (median)", fmtNum(data.total_tokens.median, 0), `min ${fmtNum(data.total_tokens.min, 0)} · max ${fmtNum(data.total_tokens.max, 0)}`)}
+      </div>`;
+    }
+
+    function latencyTimeline(data) {
+      const items = [...data.by_run].sort((a, b) => a.result.latency_ms - b.result.latency_ms);
+      const max = Math.max(...items.map((m) => m.result.latency_ms), 1);
+      const rows = items.map((m) => {
+        const v = m.result.latency_ms;
+        const pct = v > 0 ? Math.max((v / max) * 100, 4) : 0;
+        const judge = m.result.judge_pass
+          ? (m.result.judge_warnings?.length ? "warn" : "pass")
+          : "fail";
+        return `<div class="metric-row">
+          <div class="when" title="${fmtWhen(m.started_at)}">${fmtShortWhen(m.started_at)}</div>
+          <div class="bar-track"><div class="bar-fill solo" style="width:${pct}%"></div></div>
+          <div class="num">${fmtLatency(v)}</div>
+        </div>`;
+      }).join("");
+      timelineEl.hidden = false;
+      timelineEl.innerHTML = `<div class="timeline-wrap">
+        <div class="metric-block"><h3>Latency by run (low → high)</h3>${rows}</div>
+      </div>`;
+    }
+
+    function renderRunCard(measurement, idx) {
+      const r = measurement.result;
+      const warnings = r.judge_warnings || [];
+      const judgeClass = r.judge_pass
+        ? (warnings.length ? "judge-warn" : "judge-pass")
+        : "judge-fail";
+      const judgeLabel = r.judge_pass
+        ? (warnings.length ? "PASS+WARN" : "PASS")
+        : "FAIL";
+      const passBadge = r.judge_pass
+        ? (warnings.length ? `<span class="badge warn">PASS+WARN</span>` : `<span class="badge pass">PASS</span>`)
+        : `<span class="badge fail">FAIL</span>`;
+      const warnTags = warnings.length
+        ? `<div class="warn-tags">${warnings.map((w) => `<span class="badge warn">${escapeHtml(w)}</span>`).join("")}</div>`
+        : "";
+
+      return `<article class="run-card open" id="run-${measurement.run_id}">
+        <div class="run-header" role="button" tabindex="0" aria-expanded="true">
+          <div>
+            <div class="run-when">${fmtWhen(measurement.started_at)}</div>
+            <div class="run-id">${escapeHtml(measurement.run_id)}</div>
+          </div>
+          <div class="run-badges">
+            ${passBadge}
+            <span class="badge">${fmtLatency(r.latency_ms)}</span>
+            <span class="badge">${fmtCost(r.total_cost)}</span>
+            <span class="badge">${r.total_tokens} tok</span>
+            <span class="chevron">▶</span>
+          </div>
+        </div>
+        <div class="run-body">
+          <div>
+            <div class="field-label">Tuned prompt</div>
+            <div class="text-block">${escapeHtml(r.prompt_used)}</div>
+          </div>
+          <div>
+            <div class="field-label">Response</div>
+            <div class="text-block">${escapeHtml(r.response_text)}</div>
+            <div class="telemetry">
+              <div><span>cost</span> ${fmtCost(r.total_cost)}</div>
+              <div><span>latency</span> ${fmtLatency(r.latency_ms)}</div>
+              <div><span>prompt tok</span> ${r.prompt_tokens}</div>
+              <div><span>completion</span> ${r.completion_tokens}</div>
+              <div><span>total tok</span> ${r.total_tokens}</div>
+              <div class="${judgeClass}"><span>judge</span> ${judgeLabel}</div>
+            </div>
+            ${r.judge_rationale ? `<div class="text-block" style="margin-top:0.5rem;max-height:80px">${escapeHtml(r.judge_rationale)}</div>` : ""}
+            ${warnTags}
+          </div>
+        </div>
+      </article>`;
+    }
+
+    function renderRuns(data) {
+      if (!data.by_run.length) {
+        runsEl.innerHTML = `<div class="empty">No benchmark runs for this pair yet.</div>`;
+        return;
+      }
+      runsEl.innerHTML = `<h2 class="section">Benchmark runs (newest first)</h2>` +
+        data.by_run.map((m, idx) => renderRunCard(m, idx)).join("");
+      runsEl.querySelectorAll(".run-header").forEach((header) => {
+        header.addEventListener("click", () => {
+          const card = header.closest(".run-card");
+          const open = card.classList.toggle("open");
+          header.setAttribute("aria-expanded", open);
+        });
+      });
+    }
+
+    async function loadRoots(preferredRoot) {
+      const data = await api("/api/v1/analytics/roots");
+      rootSelect.innerHTML = "";
+      if (!data.roots.length) {
+        rootSelect.innerHTML = `<option value="">No prompts yet</option>`;
+        rootSelect.disabled = true;
+        deploymentSelect.disabled = true;
+        updateSteppers();
+        return null;
+      }
+      data.roots.forEach((root) => {
+        const opt = document.createElement("option");
+        opt.value = root.root_id;
+        const preview = root.generic_prompt.length > 40
+          ? `${root.generic_prompt.slice(0, 40)}…`
+          : root.generic_prompt;
+        opt.textContent = `${root.root_id} · ${preview}`;
+        rootSelect.appendChild(opt);
+      });
+      rootSelect.disabled = false;
+      const wanted = preferredRoot || urlParams().get("root");
+      if (wanted && data.roots.some((r) => r.root_id === wanted)) {
+        rootSelect.value = wanted;
+      }
+      updateSteppers();
+      return rootSelect.value || data.roots[0].root_id;
+    }
+
+    async function loadDeployments(rootId, preferredDeployment) {
+      deploymentSelect.innerHTML = `<option value="">Loading…</option>`;
+      deploymentSelect.disabled = true;
+      let data;
+      try {
+        data = await api(`/api/v1/analytics/roots/${encodeURIComponent(rootId)}/deployments`);
+      } catch (err) {
+        deploymentSelect.innerHTML = `<option value="">No deployments</option>`;
+        throw err;
+      }
+      deploymentSelect.innerHTML = "";
+      data.deployments.forEach((dep) => {
+        const opt = document.createElement("option");
+        opt.value = dep.deployment_id;
+        opt.textContent = `${dep.deployment_id} (${dep.run_count} run${dep.run_count === 1 ? "" : "s"}, ${dep.pass_count} pass${dep.state !== "unset" ? `, ${dep.state}` : ""})`;
+        deploymentSelect.appendChild(opt);
+      });
+      deploymentSelect.disabled = false;
+      const wanted = preferredDeployment || urlParams().get("deployment");
+      if (wanted && data.deployments.some((d) => d.deployment_id === wanted)) {
+        deploymentSelect.value = wanted;
+      }
+      updateSteppers();
+      return deploymentSelect.value || data.deployments[0].deployment_id;
+    }
+
+    async function loadHistory(rootId, deploymentId) {
+      statusEl.className = "loading";
+      statusEl.textContent = "Loading history…";
+      statusEl.hidden = false;
+      promptHeroEl.hidden = true;
+      statePanelEl.hidden = true;
+      summaryEl.hidden = true;
+      timelineEl.hidden = true;
+      runsEl.innerHTML = "";
+
+      const data = await api(
+        `/api/v1/analytics/roots/${encodeURIComponent(rootId)}/deployments/${encodeURIComponent(deploymentId)}/history`,
+      );
+      statusEl.hidden = true;
+      setUrl(rootId, deploymentId);
+      renderHero(data);
+      renderStatePanel(data);
+      renderSummary(data);
+      if (data.by_run.length > 1) latencyTimeline(data);
+      renderRuns(data);
+    }
+
+    async function onRootChange() {
+      const rootId = rootSelect.value;
+      if (!rootId) return;
+      try {
+        const deploymentId = await loadDeployments(rootId, null);
+        if (deploymentId) await loadHistory(rootId, deploymentId);
+      } catch (err) {
+        statusEl.className = "error";
+        statusEl.hidden = false;
+        statusEl.textContent = err.message;
+        runsEl.innerHTML = "";
+      }
+    }
+
+    async function init() {
+      try {
+        const rootId = await loadRoots();
+        if (!rootId) {
+          statusEl.className = "empty";
+          statusEl.textContent = "Run a benchmark first, then refresh.";
+          return;
+        }
+        const deploymentId = await loadDeployments(rootId, urlParams().get("deployment"));
+        if (deploymentId) await loadHistory(rootId, deploymentId);
+      } catch (err) {
+        statusEl.className = "error";
+        statusEl.hidden = false;
+        statusEl.textContent = `Failed to load: ${err.message}`;
+      }
+    }
+
+    rootSelect.addEventListener("change", onRootChange);
+    deploymentSelect.addEventListener("change", () => {
+      if (rootSelect.value && deploymentSelect.value) {
+        loadHistory(rootSelect.value, deploymentSelect.value).catch((err) => {
+          statusEl.className = "error";
+          statusEl.hidden = false;
+          statusEl.textContent = err.message;
+        });
+      }
+    });
+
+    rootPrevBtn.addEventListener("click", () => {
+      if (stepSelect(rootSelect, -1)) onRootChange();
+    });
+    rootNextBtn.addEventListener("click", () => {
+      if (stepSelect(rootSelect, 1)) onRootChange();
+    });
+    deploymentPrevBtn.addEventListener("click", () => {
+      if (stepSelect(deploymentSelect, -1) && rootSelect.value) {
+        loadHistory(rootSelect.value, deploymentSelect.value).catch((err) => {
+          statusEl.className = "error";
+          statusEl.hidden = false;
+          statusEl.textContent = err.message;
+        });
+      }
+    });
+    deploymentNextBtn.addEventListener("click", () => {
+      if (stepSelect(deploymentSelect, 1) && rootSelect.value) {
+        loadHistory(rootSelect.value, deploymentSelect.value).catch((err) => {
+          statusEl.className = "error";
+          statusEl.hidden = false;
+          statusEl.textContent = err.message;
+        });
+      }
+    });
+    refreshBtn.addEventListener("click", init);
+
+    init();
+  </script>
+</body>
+</html>

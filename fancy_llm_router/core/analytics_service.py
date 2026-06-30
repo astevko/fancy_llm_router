@@ -8,10 +8,24 @@ from fancy_llm_router.schemas.analytics import (
     BaselineRunInfo,
     BaselineRunSummary,
     DeploymentBreakdown,
+    DeploymentOption,
     MetricStats,
+    PromptDeploymentHistory,
+    RootPromptInfo,
     RootPromptSummary,
+    RunMeasurement,
 )
 from fancy_llm_router.schemas.prompts import BaselineResult, BaselineRun
+
+
+def _median(values: List[float]) -> float:
+    if not values:
+        return 0.0
+    nums = sorted(values)
+    mid = len(nums) // 2
+    if len(nums) % 2:
+        return nums[mid]
+    return (nums[mid - 1] + nums[mid]) / 2
 
 
 def _metric_stats(values: Iterable[float]) -> MetricStats:
@@ -21,6 +35,7 @@ def _metric_stats(values: Iterable[float]) -> MetricStats:
     return MetricStats(
         total=sum(nums),
         avg=sum(nums) / len(nums),
+        median=_median(nums),
         min=min(nums),
         max=max(nums),
     )
@@ -140,3 +155,67 @@ class AnalyticsService:
         if not results:
             return None
         return build_run_summary(run, results, self.registry)
+
+    def list_roots(self, limit: int = 100) -> List[RootPromptInfo]:
+        rows = self.registry.list_measured_roots(limit=limit)
+        return [RootPromptInfo(**row) for row in rows]
+
+    def list_deployments_for_root(self, root_id: str) -> List[DeploymentOption]:
+        rows = self.registry.list_deployments_for_root(root_id)
+        return [DeploymentOption(**row) for row in rows]
+
+    def get_prompt_deployment_history(
+        self,
+        root_id: str,
+        deployment_id: str,
+    ) -> Optional[PromptDeploymentHistory]:
+        return build_prompt_deployment_history(root_id, deployment_id, self.registry)
+
+
+def build_prompt_deployment_history(
+    root_id: str,
+    deployment_id: str,
+    registry: PromptRegistry,
+) -> Optional[PromptDeploymentHistory]:
+    """All benchmark runs for one parent prompt on one deployment."""
+    results = registry.list_results_for_root_deployment(root_id, deployment_id)
+    if not results:
+        return None
+
+    root_meta = registry.get_root(root_id)
+    generic_prompt = (
+        root_meta.generic_text
+        if root_meta
+        else results[0].generic_prompt
+    )
+
+    measurements: List[RunMeasurement] = []
+    for result in results:
+        run = registry.get_run(result.run_id)
+        measurements.append(
+            RunMeasurement(
+                run_id=result.run_id,
+                run_type=run.run_type if run else "client",
+                started_at=run.started_at if run else result.created_at,
+                completed_at=run.completed_at if run else result.created_at,
+                result=_deployment_from_result(result),
+            )
+        )
+
+    pass_count = sum(1 for m in measurements if m.result.judge_pass)
+
+    return PromptDeploymentHistory(
+        root_id=root_id,
+        generic_prompt=generic_prompt,
+        category=root_meta.category if root_meta else None,
+        expected_answer=root_meta.expected_answer if root_meta else None,
+        deployment_id=deployment_id,
+        state=registry.get_pair_state(root_id, deployment_id).state.value,
+        run_count=len(measurements),
+        pass_count=pass_count,
+        fail_count=len(measurements) - pass_count,
+        cost=_metric_stats(m.result.total_cost for m in measurements),
+        latency_ms=_metric_stats(m.result.latency_ms for m in measurements),
+        total_tokens=_metric_stats(float(m.result.total_tokens) for m in measurements),
+        by_run=measurements,
+    )

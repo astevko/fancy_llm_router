@@ -74,6 +74,7 @@ def test_build_run_summary_groups_by_root(registry_with_data):
     assert root.deployment_count == 2
     assert root.cost.max == pytest.approx(0.00002)
     assert root.latency_ms.max == pytest.approx(120.0)
+    assert root.latency_ms.median == pytest.approx(82.5)
     assert len(root.by_deployment) == 2
     tuned = next(d for d in root.by_deployment if d.deployment_id == "mock-fast@mock")
     assert "one word" in tuned.prompt_used
@@ -97,6 +98,69 @@ def test_analytics_service_missing_run(registry_with_data):
     reg, _, _ = registry_with_data
     service = AnalyticsService(reg)
     assert service.get_run_summary("missing") is None
+
+
+def test_list_roots_and_deployments_for_root(registry_with_data):
+    reg, run, _results = registry_with_data
+    service = AnalyticsService(reg)
+    roots = service.list_roots()
+    assert len(roots) == 1
+    assert roots[0].root_id == "small-01"
+
+    deployments = service.list_deployments_for_root("small-01")
+    assert len(deployments) == 2
+    ids = {d.deployment_id for d in deployments}
+    assert ids == {"mock-fast@mock", "mock-large@mock"}
+    for dep in deployments:
+        assert dep.run_count == 1
+
+
+def test_prompt_deployment_history(registry_with_data):
+    reg, run, _results = registry_with_data
+    service = AnalyticsService(reg)
+    history = service.get_prompt_deployment_history("small-01", "mock-fast@mock")
+    assert history is not None
+    assert history.run_count == 1
+    assert history.pass_count == 1
+    assert history.by_run[0].run_id == run.run_id
+    assert history.by_run[0].result.response_text == "Paris"
+
+
+def test_prompt_deployment_history_across_runs():
+    with tempfile.TemporaryDirectory() as tmp:
+        reg = PromptRegistry(db_path=str(Path(tmp) / "multi.db"))
+        reg.initialize()
+        reg.ensure_root("small-01", "What is the capital of France?", expected_answer="Paris")
+        run_a = reg.create_run(run_type="smoke")
+        run_b = reg.create_run(run_type="smoke")
+        for run_id, deployment_id, passed in (
+            (run_a.run_id, "mock-fast@mock", True),
+            (run_b.run_id, "mock-fast@mock", False),
+        ):
+            reg.store_result(
+                BaselineResult(
+                    result_id=f"{run_id}-r",
+                    run_id=run_id,
+                    root_id="small-01",
+                    deployment_id=deployment_id,
+                    generic_prompt="What is the capital of France?",
+                    prompt_used="What is the capital of France?",
+                    response_text="Paris" if passed else "Lyon",
+                    response_hash="x",
+                    judge=JudgeResult(
+                        pass_=passed,
+                        accuracy_score=1.0 if passed else 0.0,
+                        rationale="ok" if passed else "fail",
+                    ),
+                )
+            )
+        service = AnalyticsService(reg)
+        history = service.get_prompt_deployment_history("small-01", "mock-fast@mock")
+        assert history is not None
+        assert history.run_count == 2
+        assert history.pass_count == 1
+        assert history.fail_count == 1
+        assert {m.run_id for m in history.by_run} == {run_a.run_id, run_b.run_id}
 
 
 def test_list_runs_from_orphan_results():
