@@ -545,6 +545,15 @@ class PromptRegistry:
 
     @staticmethod
     def _result_from_row(row: BaselineResultDB) -> BaselineResult:
+        import json
+
+        metadata: dict = {}
+        if row.metadata_json:
+            try:
+                metadata = json.loads(row.metadata_json)
+            except json.JSONDecodeError:
+                metadata = {}
+        warnings = metadata.get("judge_warnings", [])
         return BaselineResult(
             result_id=row.result_id,
             run_id=row.run_id,
@@ -564,7 +573,9 @@ class PromptRegistry:
                 pass_=bool(row.judge_pass),
                 accuracy_score=row.judge_accuracy or 0.0,
                 rationale=row.judge_rationale or "",
+                warnings=warnings,
             ),
             is_canonical=bool(row.is_canonical),
             created_at=row.created_at or datetime.utcnow(),
+            metadata=metadata,
         )

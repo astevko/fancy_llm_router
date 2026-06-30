@@ -22,6 +22,13 @@ from fancy_llm_router.schemas.prompts import (
 from fancy_llm_router.schemas.requests import CompletionRequest, CompletionResponse
 from fancy_llm_router.schemas.routing import RoutingCriteria
 from fancy_llm_router.core.prompt_registry import PromptRegistry
+from fancy_llm_router.core.prompt_envelope import (
+    format_wire_prompt,
+    measure_max_tokens,
+    measure_stop_sequences,
+    measure_system_prompt,
+    measure_user_message,
+)
 from fancy_llm_router.utils.hash_utils import prompt_hash
 
 logger = logging.getLogger(__name__)
@@ -157,16 +164,26 @@ class BenchmarkService:
                         else revision
                     )
 
+            category = request.category or root.category
+            system_prompt = measure_system_prompt(category)
+            user_message = measure_user_message(prompt_used)
+            wire_prompt = format_wire_prompt(system_prompt, user_message)
+
             exec_request = CompletionRequest(
                 model=deployment_id,
-                prompt=prompt_used,
-                max_tokens=request.max_tokens,
+                prompt=user_message,
+                max_tokens=measure_max_tokens(category, request.max_tokens),
                 temperature=request.temperature,
+                stop=measure_stop_sequences(),
                 intent="infer",
                 root_id=None,
                 request_id=request.request_id or str(uuid.uuid4()),
                 session_id=request.session_id,
-                prompt_hash=prompt_hash(prompt_used),
+                prompt_hash=prompt_hash(wire_prompt),
+                extra={
+                    "use_chat": True,
+                    "system_prompt": system_prompt,
+                },
             )
 
             response, decision, req_metrics = await self._execute_with_metrics(exec_request)
@@ -176,7 +193,16 @@ class BenchmarkService:
                 req_metrics.latency.time_to_complete_ms if req_metrics else 0.0
             )
 
-            judge = self.evaluator.evaluate(root.generic_text, response_text, expected)
+            judge = self.evaluator.evaluate(
+                root.generic_text,
+                response_text,
+                expected,
+                finish_reason=(
+                    response.choices[0].finish_reason if response.choices else None
+                ),
+                completion_tokens=usage.get("completion_tokens", 0),
+                category=category,
+            )
 
             result_id = str(uuid.uuid4())
             baseline = BaselineResult(
@@ -186,7 +212,7 @@ class BenchmarkService:
                 deployment_id=deployment_id,
                 variant_id=variant_id,
                 generic_prompt=root.generic_text,
-                prompt_used=prompt_used,
+                prompt_used=wire_prompt,
                 response_text=response_text,
                 response_hash=prompt_hash(response_text),
                 prompt_tokens=usage.get("prompt_tokens", 0),
@@ -195,7 +221,8 @@ class BenchmarkService:
                 total_cost=req_metrics.cost.total_cost if req_metrics else 0.0,
                 latency_ms=latency_ms or 0.0,
                 judge=judge,
-                is_canonical=judge.pass_,
+                is_canonical=judge.pass_ and not judge.warnings,
+                metadata={"judge_warnings": judge.warnings} if judge.warnings else {},
             )
             self.registry.store_result(baseline)
 
@@ -235,7 +262,7 @@ class BenchmarkService:
             root_id=request.root_id,
             deployment_id=deployment_id,
             variant_id=variant_id,
-            prompt_used=prompt_used,
+            prompt_used=wire_prompt,
             generic_prompt=root.generic_text,
             judge=judge,
             baseline_result_id=result_id,

@@ -23,6 +23,7 @@ class DeploymentBreakdown(BaseModel):
     judge_pass: bool = False
     judge_accuracy: float = 0.0
     judge_rationale: str = ""
+    judge_warnings: List[str] = Field(default_factory=list)
     is_canonical: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

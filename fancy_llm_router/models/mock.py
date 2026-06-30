@@ -58,6 +58,38 @@ class MockProvider(BaseModelProvider):
         git_commit: Optional[str] = None,
         **kwargs,
     ) -> CompletionResponse:
+        if request.extra.get("use_chat") and self.model_info.capabilities.supports_chat:
+            chat_request = ChatRequest(
+                messages=[],
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
+                stop=request.stop,
+                request_id=request.request_id,
+            )
+            if request.extra.get("system_prompt"):
+                chat_request.messages.append(
+                    ChatMessage(role=MessageRole.SYSTEM, content=request.extra["system_prompt"])
+                )
+            chat_request.messages.append(
+                ChatMessage(role=MessageRole.USER, content=request.prompt)
+            )
+            chat_response = await self.chat(chat_request, git_commit)
+            text = ""
+            if chat_response.choices:
+                text = chat_response.choices[0].message.content or ""
+                if "capital of france" in request.prompt.lower():
+                    text = "The capital of France is Paris."
+            return CompletionResponse(
+                id=chat_response.id,
+                object="text_completion",
+                created=chat_response.created,
+                model=self.model_id,
+                choices=[CompletionChoice(text=text, index=0, finish_reason="stop")],
+                usage=chat_response.usage,
+                request_id=request.request_id,
+                latency_ms=chat_response.latency_ms,
+            )
+
         start = time.time()
         prompt_lower = request.prompt.lower()
         if "capital of france" in prompt_lower:

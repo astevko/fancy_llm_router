@@ -53,6 +53,7 @@ class JudgeResult(BaseModel):
     accuracy_score: float = 0.0
     relevance_score: Optional[float] = None
     rationale: str = ""
+    warnings: List[str] = Field(default_factory=list)
 
     class Config:
         populate_by_name = True

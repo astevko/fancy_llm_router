@@ -42,6 +42,7 @@ def _deployment_from_result(result: BaselineResult) -> DeploymentBreakdown:
         judge_pass=result.judge.pass_,
         judge_accuracy=result.judge.accuracy_score,
         judge_rationale=result.judge.rationale,
+        judge_warnings=result.judge.warnings,
         is_canonical=result.is_canonical,
         created_at=result.created_at,
     )

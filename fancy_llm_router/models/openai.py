@@ -19,6 +19,7 @@ from fancy_llm_router.schemas.requests import (
     CompletionChoice,
     ChatChoice,
     EmbeddingData,
+    MessageRole,
 )
 
 
@@ -221,6 +222,9 @@ class OpenAIProvider(BaseModelProvider):
         **kwargs
     ) -> CompletionResponse:
         """Generate a text completion."""
+        if request.extra.get("use_chat") and self.model_info.capabilities.supports_chat:
+            return await self._completion_via_chat(request, git_commit)
+
         start_time = time.time()
         
         try:
@@ -263,6 +267,52 @@ class OpenAIProvider(BaseModelProvider):
             
         except Exception as e:
             raise ModelError(f"Completion failed: {e}")
+
+    async def _completion_via_chat(
+        self,
+        request: CompletionRequest,
+        git_commit: Optional[str] = None,
+    ) -> CompletionResponse:
+        """Route a completion request through chat/completions for instruction-tuned models."""
+        messages = []
+        system_prompt = request.extra.get("system_prompt")
+        if system_prompt:
+            messages.append(ChatMessage(role=MessageRole.SYSTEM, content=system_prompt))
+        messages.append(ChatMessage(role=MessageRole.USER, content=request.prompt))
+
+        chat_request = ChatRequest(
+            model=request.model,
+            messages=messages,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature,
+            top_p=request.top_p,
+            n=request.n,
+            stop=request.stop,
+            request_id=request.request_id,
+            session_id=request.session_id,
+            prompt_hash=request.prompt_hash,
+            extra={
+                k: v
+                for k, v in request.extra.items()
+                if k not in {"use_chat", "system_prompt"}
+            },
+        )
+        chat_response = await self.chat(chat_request, git_commit=git_commit)
+        text = ""
+        finish_reason = "stop"
+        if chat_response.choices:
+            text = chat_response.choices[0].message.content or ""
+            finish_reason = chat_response.choices[0].finish_reason or "stop"
+        return CompletionResponse(
+            id=chat_response.id,
+            object="text_completion",
+            created=chat_response.created,
+            model=chat_response.model,
+            choices=[CompletionChoice(text=text, index=0, finish_reason=finish_reason)],
+            usage=chat_response.usage,
+            request_id=chat_response.request_id,
+            latency_ms=chat_response.latency_ms,
+        )
     
     async def chat(
         self,

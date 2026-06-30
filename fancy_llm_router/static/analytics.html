@@ -189,6 +189,9 @@
     .telemetry span { color: var(--muted); }
     .judge-pass { color: var(--pass); }
     .judge-fail { color: var(--fail); }
+    .judge-warn { color: var(--warn); }
+    .badge.warn { background: rgba(230, 192, 123, 0.12); color: var(--warn); border-color: rgba(230, 192, 123, 0.35); }
+    .warn-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
     .empty, .loading, .error {
       text-align: center;
       padding: 3rem 1rem;
@@ -302,7 +305,18 @@
           ${barChart("Tokens by deployment", root.by_deployment, "total_tokens", (v) => fmtNum(v, 0))}
         </div>`;
 
-        const rows = root.by_deployment.map((d) => `
+        const rows = root.by_deployment.map((d) => {
+          const warnings = d.judge_warnings || [];
+          const judgeClass = d.judge_pass
+            ? (warnings.length ? "judge-warn" : "judge-pass")
+            : "judge-fail";
+          const judgeLabel = d.judge_pass
+            ? (warnings.length ? "PASS+WARN" : "PASS")
+            : "FAIL";
+          const warnTags = warnings.length
+            ? `<div class="warn-tags">${warnings.map((w) => `<span class="badge warn">${escapeHtml(w)}</span>`).join("")}</div>`
+            : "";
+          return `
           <tr>
             <td><code>${d.deployment_id}</code>${d.variant_id ? `<br><small style="color:var(--muted)">variant ${d.variant_id.slice(0, 8)}…</small>` : ""}</td>
             <td><div class="text-block">${escapeHtml(d.generic_prompt)}</div></td>
@@ -315,12 +329,14 @@
                 <div><span>prompt tok</span> ${d.prompt_tokens}</div>
                 <div><span>completion</span> ${d.completion_tokens}</div>
                 <div><span>total tok</span> ${d.total_tokens}</div>
-                <div class="${d.judge_pass ? "judge-pass" : "judge-fail"}"><span>judge</span> ${d.judge_pass ? "PASS" : "FAIL"} (${fmtNum(d.judge_accuracy * 100, 0)}%)</div>
+                <div class="${judgeClass}"><span>judge</span> ${judgeLabel} (${fmtNum(d.judge_accuracy * 100, 0)}%)</div>
               </div>
               ${d.judge_rationale ? `<div class="text-block" style="margin-top:0.5rem;max-height:80px">${escapeHtml(d.judge_rationale)}</div>` : ""}
+              ${warnTags}
             </td>
           </tr>
-        `).join("");
+        `;
+        }).join("");
 
         const expected = root.expected_answer
           ? `<p style="margin-top:0.5rem;font-size:0.8rem;color:var(--muted)">Expected: <code>${escapeHtml(root.expected_answer)}</code></p>`

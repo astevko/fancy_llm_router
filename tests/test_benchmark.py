@@ -112,5 +112,6 @@ async def test_measure_attempt_zero_uses_generic_despite_failed_variant(benchmar
     await service.measure_request(request)
     results = registry.list_results("generic-baseline-test")
     assert results
-    assert results[0].prompt_used == prompt
     assert results[0].generic_prompt == prompt
+    assert "[system]" in results[0].prompt_used
+    assert prompt in results[0].prompt_used
