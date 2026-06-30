@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/favicon.ico" />
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242836;
+      --border: #2e3345;
+      --text: #e8eaef;
+      --muted: #9aa3b5;
+      --accent: #6c8cff;
+      --pass: #3ecf8e;
+      --fail: #f07178;
+      --warn: #e6c07b;
+      --mono: "SF Mono", "Fira Code", "Consolas", monospace;
+      --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    header {
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 1.25rem 2rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header p { color: var(--muted); font-size: 0.875rem; }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    select, button {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      font: inherit;
+      font-size: 0.9rem;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    main { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem 3rem; }
+    .run-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+    }
+    .stat-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-card .value { font-size: 1.35rem; font-weight: 600; margin-top: 0.25rem; }
+    .stat-card .sub { font-size: 0.8rem; color: var(--muted); margin-top: 0.15rem; }
+    .root-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+    .root-header {
+      padding: 1.1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+    .root-header:hover { background: var(--surface2); }
+    .root-id {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: var(--accent);
+      margin-bottom: 0.35rem;
+    }
+    .parent-prompt {
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .root-badges { display: flex; gap: 0.5rem; flex-shrink: 0; flex-wrap: wrap; }
+    .badge {
+      font-size: 0.75rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .badge.pass { color: var(--pass); border-color: rgba(62,207,142,0.4); }
+    .badge.fail { color: var(--fail); border-color: rgba(240,113,120,0.4); }
+    .root-body { padding: 1.25rem; display: none; }
+    .root-card.open .root-body { display: block; }
+    .root-card.open .chevron { transform: rotate(90deg); }
+    .chevron { transition: transform 0.15s; color: var(--muted); }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .metric-block h3 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 0.6rem;
+    }
+    .metric-row {
+      display: grid;
+      grid-template-columns: 110px 1fr 70px;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.45rem;
+      font-size: 0.8rem;
+    }
+    .metric-row .dep { font-family: var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-track {
+      height: 8px;
+      background: var(--surface2);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #8b5cf6);
+      border-radius: 4px;
+      min-width: 2px;
+    }
+    .metric-row .num { text-align: right; font-family: var(--mono); color: var(--text); }
+    .deployment-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .deployment-table th {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      color: var(--muted);
+      font-weight: 500;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .deployment-table td {
+      padding: 0.85rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .deployment-table tr:last-child td { border-bottom: none; }
+    .text-block {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem 0.7rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+    .telemetry {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.35rem 0.75rem;
+      font-size: 0.78rem;
+      font-family: var(--mono);
+    }
+    .telemetry span { color: var(--muted); }
+    .judge-pass { color: var(--pass); }
+    .judge-fail { color: var(--fail); }
+    .empty, .loading, .error {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--muted);
+    }
+    .error { color: var(--fail); }
+    h2.section {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin: 1.25rem 0 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Baseline Analytics</h1>
+      <p>Parent prompts, tuned variants, responses, and telemetry by deployment</p>
+    </div>
+    <div class="controls">
+      <label for="run-select">Benchmark run</label>
+      <select id="run-select" disabled>
+        <option value="">Loading runs…</option>
+      </select>
+      <button id="refresh-btn" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="status" class="loading">Loading analytics…</div>
+    <div id="run-summary" hidden></div>
+    <div id="roots"></div>
+  </main>
+
+  <script>
+    const runSelect = document.getElementById("run-select");
+    const refreshBtn = document.getElementById("refresh-btn");
+    const statusEl = document.getElementById("status");
+    const runSummaryEl = document.getElementById("run-summary");
+    const rootsEl = document.getElementById("roots");
+
+    const api = (path) => fetch(path).then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    });
+
+    function fmtCost(n) {
+      if (n === 0) return "$0";
+      if (n < 0.0001) return `$${n.toExponential(2)}`;
+      return `$${n.toFixed(6)}`;
+    }
+
+    function fmtNum(n, digits = 1) {
+      if (n == null) return "—";
+      return Number(n).toLocaleString(undefined, { maximumFractionDigits: digits });
+    }
+
+    function fmtLatency(ms) {
+      if (ms < 1000) return `${fmtNum(ms, 0)} ms`;
+      return `${fmtNum(ms / 1000, 2)} s`;
+    }
+
+    function statCard(label, value, sub = "") {
+      return `<div class="stat-card"><div class="label">${label}</div><div class="value">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+    }
+
+    function barChart(title, items, valueKey, formatter) {
+      const values = items.map((d) => d[valueKey]);
+      const max = Math.max(...values, 0.000001);
+      const rows = items.map((d) => {
+        const v = d[valueKey];
+        const pct = Math.max((v / max) * 100, v > 0 ? 3 : 0);
+        return `<div class="metric-row">
+          <div class="dep" title="${d.deployment_id}">${d.deployment_id}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+          <div class="num">${formatter(v)}</div>
+        </div>`;
+      }).join("");
+      return `<div class="metric-block"><h3>${title}</h3>${rows}</div>`;
+    }
+
+    function renderRunSummary(data) {
+      runSummaryEl.hidden = false;
+      runSummaryEl.innerHTML = `<div class="run-meta">
+        ${statCard("Parent prompts", data.root_count)}
+        ${statCard("Measurements", data.result_count)}
+        ${statCard("Judge pass", `${data.pass_count} / ${data.result_count}`, `${data.fail_count} failed`)}
+        ${statCard("Total cost", fmtCost(data.cost.total), `avg ${fmtCost(data.cost.avg)}`)}
+        ${statCard("Avg latency", fmtLatency(data.latency_ms.avg), `min ${fmtLatency(data.latency_ms.min)} · max ${fmtLatency(data.latency_ms.max)}`)}
+        ${statCard("Total tokens", fmtNum(data.total_tokens.total, 0), `avg ${fmtNum(data.total_tokens.avg, 0)}`)}
+      </div>`;
+    }
+
+    function renderRoots(data) {
+      if (!data.roots.length) {
+        rootsEl.innerHTML = `<div class="empty">No parent prompts in this run.</div>`;
+        return;
+      }
+
+      rootsEl.innerHTML = data.roots.map((root, idx) => {
+        const passBadge = root.pass_count === root.deployment_count
+          ? `<span class="badge pass">${root.pass_count}/${root.deployment_count} pass</span>`
+          : `<span class="badge fail">${root.pass_count}/${root.deployment_count} pass</span>`;
+        const category = root.category ? `<span class="badge">${root.category}</span>` : "";
+
+        const charts = `<div class="summary-grid">
+          ${barChart("Cost by deployment", root.by_deployment, "total_cost", fmtCost)}
+          ${barChart("Latency by deployment", root.by_deployment, "latency_ms", fmtLatency)}
+          ${barChart("Tokens by deployment", root.by_deployment, "total_tokens", (v) => fmtNum(v, 0))}
+        </div>`;
+
+        const rows = root.by_deployment.map((d) => `
+          <tr>
+            <td><code>${d.deployment_id}</code>${d.variant_id ? `<br><small style="color:var(--muted)">variant ${d.variant_id.slice(0, 8)}…</small>` : ""}</td>
+            <td><div class="text-block">${escapeHtml(d.generic_prompt)}</div></td>
+            <td><div class="text-block">${escapeHtml(d.prompt_used)}</div></td>
+            <td><div class="text-block">${escapeHtml(d.response_text)}</div></td>
+            <td>
+              <div class="telemetry">
+                <div><span>cost</span> ${fmtCost(d.total_cost)}</div>
+                <div><span>latency</span> ${fmtLatency(d.latency_ms)}</div>
+                <div><span>prompt tok</span> ${d.prompt_tokens}</div>
+                <div><span>completion</span> ${d.completion_tokens}</div>
+                <div><span>total tok</span> ${d.total_tokens}</div>
+                <div class="${d.judge_pass ? "judge-pass" : "judge-fail"}"><span>judge</span> ${d.judge_pass ? "PASS" : "FAIL"} (${fmtNum(d.judge_accuracy * 100, 0)}%)</div>
+              </div>
+              ${d.judge_rationale ? `<div class="text-block" style="margin-top:0.5rem;max-height:80px">${escapeHtml(d.judge_rationale)}</div>` : ""}
+            </td>
+          </tr>
+        `).join("");
+
+        const expected = root.expected_answer
+          ? `<p style="margin-top:0.5rem;font-size:0.8rem;color:var(--muted)">Expected: <code>${escapeHtml(root.expected_answer)}</code></p>`
+          : "";
+
+        return `<article class="root-card${idx === 0 ? " open" : ""}" data-root>
+          <div class="root-header" role="button" tabindex="0" aria-expanded="${idx === 0}">
+            <div>
+              <div class="root-id">${root.root_id}</div>
+              <div class="parent-prompt">${escapeHtml(root.generic_prompt)}</div>
+              ${expected}
+            </div>
+            <div class="root-badges">
+              ${category}
+              ${passBadge}
+              <span class="badge">${fmtCost(root.cost.total)}</span>
+              <span class="badge">${fmtLatency(root.latency_ms.avg)} avg</span>
+              <span class="chevron">▶</span>
+            </div>
+          </div>
+          <div class="root-body">
+            <div class="summary-grid" style="margin-bottom:0">
+              ${statCard("Total cost", fmtCost(root.cost.total), `min ${fmtCost(root.cost.min)} · max ${fmtCost(root.cost.max)}`)}
+              ${statCard("Avg latency", fmtLatency(root.latency_ms.avg), `min ${fmtLatency(root.latency_ms.min)} · max ${fmtLatency(root.latency_ms.max)}`)}
+              ${statCard("Tokens", fmtNum(root.total_tokens.total, 0), `prompt ${fmtNum(root.prompt_tokens.total, 0)} · completion ${fmtNum(root.completion_tokens.total, 0)}`)}
+            </div>
+            ${charts}
+            <h2 class="section">Deployment details</h2>
+            <table class="deployment-table">
+              <thead>
+                <tr>
+                  <th>Deployment</th>
+                  <th>Parent prompt</th>
+                  <th>Tuned prompt</th>
+                  <th>Response</th>
+                  <th>Telemetry</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </article>`;
+      }).join("");
+
+      rootsEl.querySelectorAll(".root-header").forEach((header) => {
+        header.addEventListener("click", () => {
+          const card = header.closest(".root-card");
+          const open = card.classList.toggle("open");
+          header.setAttribute("aria-expanded", open);
+        });
+      });
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function loadRuns(selectRunId) {
+      const data = await api("/api/v1/analytics/runs");
+      runSelect.innerHTML = "";
+      if (!data.runs.length) {
+        runSelect.innerHTML = `<option value="">No benchmark runs yet</option>`;
+        runSelect.disabled = true;
+        statusEl.className = "empty";
+        statusEl.textContent = "Run a benchmark from the token burner or CLI, then refresh.";
+        runSummaryEl.hidden = true;
+        rootsEl.innerHTML = "";
+        return null;
+      }
+      data.runs.forEach((run) => {
+        const started = run.started_at ? new Date(run.started_at).toLocaleString() : run.run_id.slice(0, 8);
+        const opt = document.createElement("option");
+        opt.value = run.run_id;
+        opt.textContent = `${started} · ${run.root_count} prompts · ${run.result_count} results`;
+        runSelect.appendChild(opt);
+      });
+      runSelect.disabled = false;
+      if (selectRunId && data.runs.some((r) => r.run_id === selectRunId)) {
+        runSelect.value = selectRunId;
+      }
+      return runSelect.value || data.runs[0].run_id;
+    }
+
+    async function loadSummary(runId) {
+      statusEl.className = "loading";
+      statusEl.textContent = "Loading analytics…";
+      statusEl.hidden = false;
+      runSummaryEl.hidden = true;
+      rootsEl.innerHTML = "";
+
+      const data = await api(`/api/v1/analytics/baseline/${runId}/summary`);
+      statusEl.hidden = true;
+      renderRunSummary(data);
+      renderRoots(data);
+    }
+
+    async function init(selectRunId) {
+      try {
+        const runId = await loadRuns(selectRunId);
+        if (runId) await loadSummary(runId);
+      } catch (err) {
+        statusEl.className = "error";
+        statusEl.hidden = false;
+        statusEl.textContent = `Failed to load analytics: ${err.message}`;
+      }
+    }
+
+    runSelect.addEventListener("change", () => {
+      if (runSelect.value) loadSummary(runSelect.value).catch((err) => {
+        statusEl.className = "error";
+        statusEl.hidden = false;
+        statusEl.textContent = err.message;
+      });
+    });
+
+    refreshBtn.addEventListener("click", () => init(runSelect.value || null));
+
+    init(null);
+  </script>
+</body>
+</html>

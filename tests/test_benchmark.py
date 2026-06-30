@@ -80,3 +80,37 @@ async def test_measure_rejects_auto(benchmark_setup):
     )
     with pytest.raises(ValueError, match="pinned deployment"):
         await service.measure_request(request)
+
+
+@pytest.mark.asyncio
+async def test_measure_attempt_zero_uses_generic_despite_failed_variant(benchmark_setup):
+    """Baseline measure must not substitute a stale failed specialization."""
+    service, registry = benchmark_setup
+    root_id = "small-01"
+    prompt = "What is the capital of France?"
+    registry.ensure_root(root_id, prompt, expected_answer="Paris")
+    registry.save_variant(
+        root_id=root_id,
+        deployment_id="mock-fast@mock",
+        prompt_text="[bad variant]\n" + prompt,
+        mutation_reason="stale failure",
+        judge_passed=False,
+    )
+
+    request = CompletionRequest(
+        intent="measure",
+        model="mock-fast@mock",
+        prompt=prompt,
+        root_id=root_id,
+        expected_answer="Paris",
+        benchmark_run_id="generic-baseline-test",
+        max_tokens=64,
+        temperature=0.0,
+        optimize_on_fail=False,
+        max_revisions=1,
+    )
+    await service.measure_request(request)
+    results = registry.list_results("generic-baseline-test")
+    assert results
+    assert results[0].prompt_used == prompt
+    assert results[0].generic_prompt == prompt

@@ -124,6 +124,8 @@ Every request logs:
   stored in SQLite; optional refactor loop via `PromptOptimizer`.
 - **CLI**: `uv run fancy-llm benchmark -r small-01 -p "What is the capital of France?" -e Paris`
 - **API**: `POST /api/v1/benchmark/baseline`, `GET /api/v1/analytics/baseline/{run_id}`
+- **Dashboard**: `http://localhost:8000/analytics` — parent prompt, tuned variant, response, and telemetry per deployment, with per-root summaries for cost, latency, and tokens
+- **Summary API**: `GET /api/v1/analytics/runs`, `GET /api/v1/analytics/baseline/{run_id}/summary`
 
 ### 4. Session Management
 - Chain multiple prompts together

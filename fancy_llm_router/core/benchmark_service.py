@@ -110,8 +110,15 @@ class BenchmarkService:
         )
 
         run_id = request.benchmark_run_id or str(uuid.uuid4())
-        if not request.benchmark_run_id:
-            self.registry.create_run(run_type="client", prompt_scope="single", run_id=run_id)
+        self.registry.ensure_run(
+            run_id=run_id,
+            run_type="client",
+            prompt_scope="deployments",
+            config_snapshot={
+                "root_id": request.root_id,
+                "deployment_id": deployment_id,
+            },
+        )
 
         expected = request.expected_answer or root.expected_answer
         model_info = self.router.get_model_info(deployment_id)
@@ -131,13 +138,24 @@ class BenchmarkService:
         prompt_used = root.generic_text
 
         for attempt in range(max_revisions):
-            resolved = self.registry.resolve_prompt(
-                request.root_id, deployment_id, root.generic_text
-            )
-            if attempt == 0 and resolved.variant_id:
-                variant_id = resolved.variant_id
-                revision = self.registry.get_variant(variant_id).revision if variant_id else 0
-            prompt_used = resolved.prompt_text
+            if attempt == 0:
+                # Canonical baseline always starts from the generic parent prompt.
+                prompt_used = root.generic_text
+            elif variant_id:
+                variant = self.registry.get_variant(variant_id)
+                prompt_used = variant.prompt_text if variant else root.generic_text
+            else:
+                resolved = self.registry.resolve_prompt(
+                    request.root_id, deployment_id, root.generic_text
+                )
+                prompt_used = resolved.prompt_text
+                if resolved.variant_id:
+                    variant_id = resolved.variant_id
+                    revision = (
+                        self.registry.get_variant(variant_id).revision
+                        if variant_id
+                        else revision
+                    )
 
             exec_request = CompletionRequest(
                 model=deployment_id,
@@ -145,7 +163,7 @@ class BenchmarkService:
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 intent="infer",
-                root_id=request.root_id,
+                root_id=None,
                 request_id=request.request_id or str(uuid.uuid4()),
                 session_id=request.session_id,
                 prompt_hash=prompt_hash(prompt_used),

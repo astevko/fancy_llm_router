@@ -249,13 +249,6 @@ class PromptRegistry:
                 .order_by(PromptVariantDB.revision.desc())
                 .first()
             )
-            if variant is None:
-                variant = (
-                    session.query(PromptVariantDB)
-                    .filter_by(root_id=root_id, deployment_id=deployment_id)
-                    .order_by(PromptVariantDB.revision.desc())
-                    .first()
-                )
             if variant:
                 return ResolvedPrompt(
                     root_id=root_id,
@@ -302,6 +295,68 @@ class PromptRegistry:
                 started_at=row.started_at,
                 config_snapshot=config_snapshot or {},
             )
+        finally:
+            session.close()
+
+    def ensure_run(
+        self,
+        run_id: str,
+        run_type: str = "client",
+        prompt_scope: str = "single",
+        config_snapshot: Optional[Dict[str, Any]] = None,
+    ) -> BaselineRun:
+        """Create a baseline run row if the client supplied an id that is not registered yet."""
+        session = self._session()
+        try:
+            if session.get(BaselineRunDB, run_id) is not None:
+                return self._run_from_db(session.get(BaselineRunDB, run_id))
+        finally:
+            session.close()
+        return self.create_run(
+            run_type=run_type,
+            prompt_scope=prompt_scope,
+            config_snapshot=config_snapshot,
+            run_id=run_id,
+        )
+
+    def backfill_runs_from_results(self) -> int:
+        """Persist baseline_runs rows for result groups that were stored without a run record."""
+        import json
+
+        from sqlalchemy import func
+
+        session = self._session()
+        try:
+            groups = (
+                session.query(
+                    BaselineResultDB.run_id,
+                    func.min(BaselineResultDB.created_at),
+                    func.max(BaselineResultDB.created_at),
+                    func.count(BaselineResultDB.result_id),
+                )
+                .group_by(BaselineResultDB.run_id)
+                .all()
+            )
+            created = 0
+            for run_id, started_at, completed_at, result_count in groups:
+                if session.get(BaselineRunDB, run_id) is not None:
+                    continue
+                session.add(
+                    BaselineRunDB(
+                        run_id=run_id,
+                        run_type="client",
+                        prompt_scope="deployments",
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        config_snapshot_json=json.dumps(
+                            {"result_count": int(result_count), "backfilled": True}
+                        ),
+                    )
+                )
+                created += 1
+            if created:
+                session.commit()
+            return created
         finally:
             session.close()
 
@@ -358,6 +413,110 @@ class PromptRegistry:
                 .all()
             )
             return [self._result_from_row(r) for r in rows]
+        finally:
+            session.close()
+
+    def list_runs(self, limit: int = 50) -> List[BaselineRun]:
+        self.backfill_runs_from_results()
+        import json
+
+        from sqlalchemy import func
+
+        session = self._session()
+        try:
+            rows = (
+                session.query(BaselineRunDB)
+                .order_by(BaselineRunDB.started_at.desc())
+                .limit(limit)
+                .all()
+            )
+            runs: List[BaselineRun] = []
+            known_ids: set[str] = set()
+            for row in rows:
+                known_ids.add(row.run_id)
+                runs.append(self._run_from_db(row))
+
+            # Safety net if results exist without a run row (should be rare after backfill).
+            orphan_rows = (
+                session.query(
+                    BaselineResultDB.run_id,
+                    func.min(BaselineResultDB.created_at),
+                    func.max(BaselineResultDB.created_at),
+                    func.count(BaselineResultDB.result_id),
+                )
+                .group_by(BaselineResultDB.run_id)
+                .order_by(func.max(BaselineResultDB.created_at).desc())
+                .limit(limit)
+                .all()
+            )
+            for run_id, started_at, completed_at, _count in orphan_rows:
+                if run_id in known_ids:
+                    continue
+                runs.append(
+                    BaselineRun(
+                        run_id=run_id,
+                        run_type="client",
+                        prompt_scope="deployments",
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        config_snapshot={},
+                    )
+                )
+
+            runs.sort(
+                key=lambda run: run.started_at or datetime.min,
+                reverse=True,
+            )
+            return runs[:limit]
+        finally:
+            session.close()
+
+    @staticmethod
+    def _run_from_db(row: BaselineRunDB) -> BaselineRun:
+        import json
+
+        snapshot: Dict[str, Any] = {}
+        if row.config_snapshot_json:
+            try:
+                snapshot = json.loads(row.config_snapshot_json)
+            except json.JSONDecodeError:
+                snapshot = {}
+        return BaselineRun(
+            run_id=row.run_id,
+            run_type=row.run_type or "smoke",
+            prompt_scope=row.prompt_scope or "single",
+            started_at=row.started_at,
+            completed_at=row.completed_at,
+            config_snapshot=snapshot,
+        )
+
+    def get_run(self, run_id: str) -> Optional[BaselineRun]:
+        from sqlalchemy import func
+
+        session = self._session()
+        try:
+            row = session.get(BaselineRunDB, run_id)
+            if row is not None:
+                return self._run_from_db(row)
+
+            agg = (
+                session.query(
+                    func.min(BaselineResultDB.created_at),
+                    func.max(BaselineResultDB.created_at),
+                )
+                .filter_by(run_id=run_id)
+                .one_or_none()
+            )
+            if agg is None or agg[0] is None:
+                return None
+            return BaselineRun(
+                run_id=run_id,
+                run_type="client",
+                prompt_scope="deployments",
+                started_at=agg[0],
+                completed_at=agg[1],
+                config_snapshot={},
+            )
         finally:
             session.close()
 

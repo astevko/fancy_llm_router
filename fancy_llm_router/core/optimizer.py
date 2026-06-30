@@ -26,19 +26,24 @@ class PromptOptimizer:
             quantization = model_info.capabilities.quantization
 
         hints = [
-            f"Answer concisely and directly.",
-            f"Target deployment: {deployment_id} ({logical} via {source}).",
+            "Answer in one short sentence. No lists, no repetition, no code.",
+            f"Deployment: {deployment_id} ({logical} via {source}).",
         ]
         if expected_answer:
-            hints.append(f"The correct answer must include: {expected_answer}.")
+            hints.append(f"Include this answer: {expected_answer}.")
         if quantization:
-            hints.append(f"Model quantization: {quantization}.")
+            hints.append(f"Quantization: {quantization}.")
         if judge.rationale:
-            hints.append(f"Previous attempt issue: {judge.rationale}")
+            short = judge.rationale.strip().replace("\n", " ")
+            if ". Got:" in short:
+                short = short.split(". Got:", 1)[0] + "."
+            if len(short) > 120:
+                short = short[:117] + "..."
+            hints.append(f"Prior issue: {short}")
 
-        specialization = (
-            f"[Specialized for {deployment_id}, revision {revision}]\n"
+        task = generic_prompt.strip()
+        return (
+            f"Answer the following question concisely.\n"
             + "\n".join(f"- {h}" for h in hints)
-            + f"\n\nTask:\n{generic_prompt.strip()}"
+            + f"\n\nQuestion: {task}"
         )
-        return specialization

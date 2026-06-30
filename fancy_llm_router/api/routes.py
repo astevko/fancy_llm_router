@@ -20,6 +20,7 @@ from fancy_llm_router.schemas.prompts import (
 )
 from fancy_llm_router.core.router import LLMRouter
 from fancy_llm_router.core.benchmark_service import BenchmarkService
+from fancy_llm_router.core.analytics_service import AnalyticsService
 from fancy_llm_router.metrics.collector import MetricsCollector
 from fancy_llm_router.core.prompt_registry import PromptRegistry
 from fancy_llm_router.tools.base import ToolRegistry
@@ -60,6 +61,12 @@ def get_prompt_registry(request: Request) -> PromptRegistry:
     if not hasattr(request.app.state, "prompt_registry"):
         raise HTTPException(status_code=500, detail="Prompt registry not initialized")
     return request.app.state.prompt_registry
+
+
+def get_analytics(request: Request) -> AnalyticsService:
+    if not hasattr(request.app.state, "analytics"):
+        raise HTTPException(status_code=500, detail="Analytics service not initialized")
+    return request.app.state.analytics
 
 
 # Router endpoints
@@ -158,6 +165,15 @@ async def benchmark_baseline(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/analytics/runs", summary="List benchmark runs")
+async def list_analytics_runs(
+    limit: int = 50,
+    analytics: AnalyticsService = Depends(get_analytics),
+) -> dict:
+    runs = analytics.list_runs(limit=limit)
+    return {"count": len(runs), "runs": [r.dict() for r in runs]}
+
+
 @router.get("/analytics/baseline/{run_id}", summary="Baseline results for a run")
 async def get_baseline_analytics(
     run_id: str,
@@ -171,6 +187,17 @@ async def get_baseline_analytics(
         "count": len(results),
         "results": [r.dict(by_alias=True) for r in results],
     }
+
+
+@router.get("/analytics/baseline/{run_id}/summary", summary="Aggregated baseline analytics")
+async def get_baseline_summary(
+    run_id: str,
+    analytics: AnalyticsService = Depends(get_analytics),
+) -> dict:
+    summary = analytics.get_run_summary(run_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=f"No analytics for run {run_id}")
+    return summary.dict()
 
 
 @router.post("/chat", summary="Generate a chat completion")

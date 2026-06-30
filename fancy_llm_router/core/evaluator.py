@@ -44,8 +44,7 @@ class LLEvaluator:
             accuracy_score=0.0,
             relevance_score=0.2,
             rationale=(
-                f"Response did not contain any of: {', '.join(alternatives)}. "
-                f"Got: {response[:200]}"
+                f"Response did not contain any of: {', '.join(alternatives)}."
             ),
         )
 

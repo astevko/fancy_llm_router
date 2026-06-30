@@ -6,7 +6,8 @@ from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pathlib import Path
 
 from fancy_llm_router.schemas.config import AppConfig
 from fancy_llm_router.core.router import LLMRouter
@@ -18,6 +19,7 @@ from fancy_llm_router.core.config_loader import (
     get_storage_db_path,
 )
 from fancy_llm_router.core.benchmark_service import BenchmarkService
+from fancy_llm_router.core.analytics_service import AnalyticsService
 from fancy_llm_router.metrics.collector import MetricsCollector
 from fancy_llm_router.core.prompt_registry import PromptRegistry
 from fancy_llm_router.tools.base import ToolRegistry
@@ -49,6 +51,9 @@ async def lifespan(app: FastAPI):
     db_path = get_storage_db_path(config_dict)
     app.state.prompt_registry = PromptRegistry(db_path=db_path)
     app.state.prompt_registry.initialize()
+    backfilled = app.state.prompt_registry.backfill_runs_from_results()
+    if backfilled:
+        logger.info("Backfilled %d baseline run(s) from stored results", backfilled)
 
     try:
         app.state.router = create_router(config_path)
@@ -67,6 +72,7 @@ async def lifespan(app: FastAPI):
         registry=app.state.prompt_registry,
         metrics=app.state.metrics,
     )
+    app.state.analytics = AnalyticsService(registry=app.state.prompt_registry)
 
     await _initialize_tools(app)
 
@@ -154,7 +160,27 @@ def create_app(
             "version": "0.1.0",
             "docs": "/docs",
             "health": "/health",
+            "analytics": "/analytics",
         }
+
+    static_dir = Path(__file__).resolve().parent.parent / "static"
+
+    @app.get("/analytics", include_in_schema=False)
+    async def analytics_dashboard():
+        dashboard = static_dir / "analytics.html"
+        if not dashboard.is_file():
+            raise HTTPException(status_code=404, detail="Analytics dashboard not found")
+        return FileResponse(dashboard, media_type="text/html")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        icon = static_dir / "favicon.ico"
+        if icon.is_file():
+            return FileResponse(icon, media_type="image/x-icon")
+        svg = static_dir / "favicon.svg"
+        if svg.is_file():
+            return FileResponse(svg, media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="Favicon not found")
 
     return app
 
