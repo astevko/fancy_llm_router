@@ -146,6 +146,23 @@ class MetricsCollector:
         first_token_time = None
         request_id = request.request_id or f"req-{int(time.time())}"
         
+        # Resolve model info from the provider when available, otherwise fall
+        # back to the request (the API tracks before a provider is selected).
+        if provider is not None:
+            model_metrics = ModelMetrics(
+                model_id=provider.model_id,
+                model_provider=provider.provider.value,
+                model_version=provider.model_info.version,
+                model_parameters=provider.model_info.parameters,
+                context_window=provider.model_info.capabilities.context_window,
+            )
+        else:
+            model_metrics = ModelMetrics(
+                model_id=getattr(request, "model", None) or "unknown",
+                model_provider="unknown",
+                context_window=0,
+            )
+
         # Create initial metrics
         metrics = RequestMetrics(
             request_id=request_id,
@@ -153,13 +170,7 @@ class MetricsCollector:
             prompt_hash=self._hash_request(request),
             created_at=datetime.utcnow(),
             request_type=type(request).__name__.replace('Request', '').lower(),
-            model_info=ModelMetrics(
-                model_id=provider.model_id,
-                model_provider=provider.provider.value,
-                model_version=provider.model_info.version,
-                model_parameters=provider.model_info.parameters,
-                context_window=provider.model_info.capabilities.context_window,
-            ),
+            model_info=model_metrics,
             token_usage=TokenUsage(),
             cost=CostMetrics(),
             latency=LatencyMetrics(),
@@ -204,6 +215,7 @@ class MetricsCollector:
             
             raise
     
+    @asynccontextmanager
     async def track_session(
         self,
         session_id: str,

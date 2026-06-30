@@ -1,7 +1,7 @@
 """API routes for the LLM Router."""
 
 import logging
-from typing import Optional, List
+from typing import Optional, List, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -14,8 +14,14 @@ from fancy_llm_router.schemas.requests import (
 from fancy_llm_router.schemas.routing import RoutingDecision, RoutingStrategy
 from fancy_llm_router.schemas.metrics import RequestMetrics, SessionMetrics
 from fancy_llm_router.schemas.sessions import SessionConfig, SessionState
+from fancy_llm_router.schemas.prompts import (
+    BenchmarkMeasureRequest,
+    BenchmarkRunRequest,
+)
 from fancy_llm_router.core.router import LLMRouter
+from fancy_llm_router.core.benchmark_service import BenchmarkService
 from fancy_llm_router.metrics.collector import MetricsCollector
+from fancy_llm_router.core.prompt_registry import PromptRegistry
 from fancy_llm_router.tools.base import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -44,7 +50,26 @@ def get_tools(request: Request) -> ToolRegistry:
     return request.app.state.tools
 
 
+def get_benchmark(request: Request) -> BenchmarkService:
+    if not hasattr(request.app.state, "benchmark"):
+        raise HTTPException(status_code=500, detail="Benchmark service not initialized")
+    return request.app.state.benchmark
+
+
+def get_prompt_registry(request: Request) -> PromptRegistry:
+    if not hasattr(request.app.state, "prompt_registry"):
+        raise HTTPException(status_code=500, detail="Prompt registry not initialized")
+    return request.app.state.prompt_registry
+
+
 # Router endpoints
+@router.get("/deployments", summary="List deployments with metadata")
+async def list_deployments(
+    benchmark: BenchmarkService = Depends(get_benchmark),
+) -> List[dict]:
+    return [d.dict() for d in benchmark.list_deployments()]
+
+
 @router.get("/models", summary="List available models")
 async def list_models(
     router: LLMRouter = Depends(get_router)
@@ -82,21 +107,70 @@ async def route_request(
 @router.post("/complete", summary="Generate a completion")
 async def generate_completion(
     request: CompletionRequest,
-    router: LLMRouter = Depends(get_router),
-    metrics: MetricsCollector = Depends(get_metrics)
+    benchmark: BenchmarkService = Depends(get_benchmark),
 ) -> dict:
     """Generate a text completion using the best model."""
     try:
-        # Execute with metrics tracking
-        async with metrics.track_request(request, None):
-            response = await router.execute(request, track_metrics=False)
-        
-        return {
-            "response": response.dict(),
-            "model": response.model,
-        }
+        return await benchmark.handle_completion(request)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/benchmark/runs", summary="Start a benchmark run")
+async def start_benchmark_run(
+    body: BenchmarkRunRequest,
+    registry: PromptRegistry = Depends(get_prompt_registry),
+) -> dict:
+    run = registry.create_run(
+        run_type=body.run_type,
+        prompt_scope=body.prompt_scope,
+        config_snapshot={"optimize": body.optimize, "max_revisions": body.max_revisions},
+    )
+    return {"benchmark_run_id": run.run_id}
+
+
+@router.post("/benchmark/measure", summary="Measure one prompt on one deployment")
+async def benchmark_measure(
+    body: BenchmarkMeasureRequest,
+    benchmark: BenchmarkService = Depends(get_benchmark),
+) -> dict:
+    try:
+        envelope = await benchmark.measure_deployment(body)
+        return envelope.dict(by_alias=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/benchmark/baseline", summary="Measure one prompt across deployments")
+async def benchmark_baseline(
+    body: BenchmarkMeasureRequest,
+    benchmark: BenchmarkService = Depends(get_benchmark),
+) -> dict:
+    try:
+        return await benchmark.measure_all_deployments(
+            root_id=body.root_id,
+            prompt=body.prompt,
+            expected_answer=body.expected_answer,
+            optimize=body.optimize,
+            max_revisions=body.max_revisions,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/analytics/baseline/{run_id}", summary="Baseline results for a run")
+async def get_baseline_analytics(
+    run_id: str,
+    registry: PromptRegistry = Depends(get_prompt_registry),
+) -> dict:
+    results = registry.list_results(run_id)
+    if not results:
+        raise HTTPException(status_code=404, detail=f"No results for run {run_id}")
+    return {
+        "run_id": run_id,
+        "count": len(results),
+        "results": [r.dict(by_alias=True) for r in results],
+    }
 
 
 @router.post("/chat", summary="Generate a chat completion")

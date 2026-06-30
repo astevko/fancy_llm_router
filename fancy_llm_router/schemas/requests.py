@@ -32,7 +32,7 @@ class ChatMessage(BaseModel):
 
 class CompletionRequest(BaseModel):
     """Request for a text completion."""
-    model: str
+    model: Optional[str] = None  # None lets the router choose the model
     prompt: str
     max_tokens: int = 256
     temperature: float = 0.7
@@ -41,6 +41,15 @@ class CompletionRequest(BaseModel):
     stream: bool = False
     stop: Optional[Union[str, List[str]]] = None
     echo: bool = False
+
+    # infer = normal routing; measure = pinned benchmark with judge
+    intent: str = "infer"
+    root_id: Optional[str] = None
+    benchmark_run_id: Optional[str] = None
+    expected_answer: Optional[str] = None
+    category: Optional[str] = None
+    optimize_on_fail: bool = True
+    max_revisions: int = 3
     
     # Metadata for tracking
     request_id: Optional[str] = None
@@ -76,7 +85,7 @@ class CompletionResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     """Request for a chat completion."""
-    model: str
+    model: Optional[str] = None  # None lets the router choose the model
     messages: List[ChatMessage]
     max_tokens: int = 256
     temperature: float = 0.7
@@ -122,7 +131,7 @@ class ChatResponse(BaseModel):
 
 class EmbeddingRequest(BaseModel):
     """Request for embeddings."""
-    model: str
+    model: Optional[str] = None  # None lets the router choose the model
     input: Union[str, List[str]]
     user: Optional[str] = None
     

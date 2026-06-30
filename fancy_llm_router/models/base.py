@@ -378,10 +378,12 @@ class ModelProviderFactory:
         from fancy_llm_router.models.openai import OpenAIProvider
         from fancy_llm_router.models.anthropic import AnthropicProvider
         from fancy_llm_router.models.local import LocalProvider
+        from fancy_llm_router.models.mock import MockProvider
         provider_classes = {
             "openai": OpenAIProvider,
             "anthropic": AnthropicProvider,
             "local": LocalProvider,
+            "mock": MockProvider,
         }
         
         if provider_str in provider_classes:

@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any, List, AsyncIterator
 import httpx
 
 from fancy_llm_router.models.base import BaseModelProvider, ModelError, ModelTimeoutError, ModelAuthenticationError
+from fancy_llm_router.utils.usage import normalize_usage
 from fancy_llm_router.schemas.models import ModelProvider, ModelInfo, ModelCapabilities, ModelPricing
 from fancy_llm_router.schemas.requests import (
     CompletionRequest,
@@ -255,7 +256,7 @@ class OpenAIProvider(BaseModelProvider):
                 created=response_data.get("created", int(time.time())),
                 model=self.model_id,
                 choices=choices,
-                usage=response_data.get("usage", {}),
+                usage=normalize_usage(response_data.get("usage")),
                 request_id=request.request_id,
                 latency_ms=(time.time() - start_time) * 1000,
             )
@@ -324,7 +325,7 @@ class OpenAIProvider(BaseModelProvider):
                 created=response_data.get("created", int(time.time())),
                 model=self.model_id,
                 choices=choices,
-                usage=response_data.get("usage", {}),
+                usage=normalize_usage(response_data.get("usage")),
                 request_id=request.request_id,
                 latency_ms=(time.time() - start_time) * 1000,
             )
@@ -363,7 +364,7 @@ class OpenAIProvider(BaseModelProvider):
                 object="list",
                 data=embeddings,
                 model=self.model_id,
-                usage=response_data.get("usage", {}),
+                usage=normalize_usage(response_data.get("usage")),
                 request_id=request.request_id,
                 latency_ms=(time.time() - start_time) * 1000,
             )

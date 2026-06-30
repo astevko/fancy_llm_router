@@ -39,12 +39,15 @@ dependencies = [
     "rich>=13.0.0",
     "numpy>=1.24.0",
     "pandas>=2.0.0",
-    "hashlib>=3.0.0",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+    "aiosqlite>=0.19.0",
+    "tiktoken>=0.5.0",
     "typing-extensions>=4.8.0",
     "python-dateutil>=2.8.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
@@ -58,6 +61,8 @@ dev = [
 
 [project.scripts]
 fancy-llm = "fancy_llm_router.cli:main"
+fancy_llm_router = "fancy_llm_router.cli:main"
+fancy-llm-router = "fancy_llm_router.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/astevko/fancy_llm_router"

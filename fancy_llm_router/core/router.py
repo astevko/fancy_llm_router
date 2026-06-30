@@ -90,6 +90,7 @@ class LLMRouter:
         # Request tracking
         self._request_counter = 0
         self._last_routing_decision: Optional[RoutingDecision] = None
+        self._prompt_registry = None
         
         # Initialize with provided models
         if models:
@@ -104,6 +105,10 @@ class LLMRouter:
         # This would be populated from config files in a real implementation
         pass
     
+    def set_prompt_registry(self, registry) -> None:
+        """Attach prompt registry for production variant substitution."""
+        self._prompt_registry = registry
+
     def register_model(
         self,
         model_info: ModelInfo,
@@ -136,7 +141,7 @@ class LLMRouter:
         )
         self._providers[model_id] = provider
         
-        logger.info(f"Registered model: {model_id}")
+        logger.debug(f"Registered model: {model_id}")
     
     def unregister_model(self, model_id: str):
         """Unregister a model."""
@@ -173,6 +178,17 @@ class LLMRouter:
         
         await asyncio.gather(*tasks)
     
+    @staticmethod
+    def _matches_requested(candidate: "ModelCandidate", requested: str) -> bool:
+        """True if a candidate can serve the requested model reference.
+
+        Matches against the unique deployment id, the wire ``model_id``, or the
+        logical model name so callers can pin a deployment or ask for a logical
+        model that several sources provide.
+        """
+        info = candidate.model_info
+        return requested in {info.full_id, info.model_id, info.logical_model}
+
     def get_available_models(
         self,
         criteria: Optional[RoutingCriteria] = None
@@ -195,13 +211,21 @@ class LLMRouter:
                 if candidate.model_info.provider.value in criteria.blocked_providers:
                     continue
             
-            # Check model constraints
+            # Check model constraints. An entry may be referenced by its unique
+            # deployment id, its wire model_id, or its logical model name so the
+            # caller can pin a deployment ("qwen3-32b@ollama"), a wire id, or a
+            # logical model ("Qwen/Qwen3-32B") interchangeably.
+            ids = {
+                model_id,  # registry key == deployment id (full_id)
+                candidate.model_info.model_id,
+                candidate.model_info.logical_model,
+            }
             if criteria.allowed_models:
-                if model_id not in criteria.allowed_models:
+                if ids.isdisjoint(criteria.allowed_models):
                     continue
             
             if criteria.blocked_models:
-                if model_id in criteria.blocked_models:
+                if not ids.isdisjoint(criteria.blocked_models):
                     continue
             # Check capability constraints
             if criteria.requires_chat and not candidate.model_info.capabilities.supports_chat:
@@ -233,9 +257,10 @@ class LLMRouter:
         candidate: ModelCandidate,
         criteria: RoutingCriteria,
         request: Union[CompletionRequest, ChatRequest, EmbeddingRequest],
+        strategy: Optional[RoutingStrategy] = None,
     ) -> float:
         """Calculate a score for a model candidate based on criteria."""
-        strategy = criteria.metadata.get("strategy", self.default_strategy)
+        strategy = strategy or criteria.metadata.get("strategy", self.default_strategy)
         
         # Get performance metrics (would come from historical data)
         model_id = candidate.model_info.full_id
@@ -249,8 +274,18 @@ class LLMRouter:
             output_tokens * candidate.model_info.pricing.output_token_price
         )
         
-        # Estimate latency (from historical data or model capabilities)
-        estimated_latency = performance.get("avg_latency_ms", 1000.0)
+        # Estimate latency from historical data, else derive it from the
+        # deployment's advertised throughput (tokens/second) so sources of the
+        # same model can be ranked by speed.
+        estimated_latency = performance.get("avg_latency_ms")
+        if estimated_latency is None:
+            caps = candidate.model_info.capabilities
+            tps = caps.tokens_per_second
+            ttft = caps.time_to_first_token_ms or 0.0
+            if tps:
+                estimated_latency = ttft + (output_tokens / tps) * 1000.0
+            else:
+                estimated_latency = 1000.0
         
         # Estimate quality (from historical data)
         estimated_quality = performance.get("avg_quality", 0.8)
@@ -290,6 +325,7 @@ class LLMRouter:
         criteria: RoutingCriteria,
         request: Union[CompletionRequest, ChatRequest, EmbeddingRequest],
         candidates: List[ModelCandidate],
+        strategy: Optional[RoutingStrategy] = None,
     ) -> ModelCandidate:
         """Select the best model from candidates."""
         if not candidates:
@@ -298,7 +334,7 @@ class LLMRouter:
         # Score all candidates
         scored_candidates = []
         for candidate in candidates:
-            score = self._calculate_model_score(candidate, criteria, request)
+            score = self._calculate_model_score(candidate, criteria, request, strategy)
             candidate.score = score
             scored_candidates.append(candidate)
         
@@ -343,6 +379,21 @@ class LLMRouter:
         
         # Get available models
         candidates = self.get_available_models(criteria)
+
+        # Narrow to the deployments that can serve the requested logical model.
+        # A request may name a logical model ("Qwen/Qwen3-32B"), a wire id, or a
+        # specific deployment ("qwen3-32b@ollama"); "auto"/None means "router's
+        # choice across everything available".
+        requested = getattr(request, "model", None)
+        if requested and requested != "auto":
+            matched = [
+                c for c in candidates if self._matches_requested(c, requested)
+            ]
+            if not matched:
+                raise NoAvailableModelsError(
+                    f"No deployment matches requested model '{requested}'"
+                )
+            candidates = matched
         
         if not candidates:
             raise NoAvailableModelsError(
@@ -350,17 +401,21 @@ class LLMRouter:
             )
         
         # Select the best model
-        selected = self._select_model(criteria, request, candidates)
+        selected = self._select_model(criteria, request, candidates, strategy)
         
         # Create routing decision
         decision = RoutingDecision(
             request_id=request.request_id,
             session_id=request.session_id,
-            selected_model=selected.model_info.model_id,
+            selected_model=selected.model_info.logical_model,
             selected_provider=selected.model_info.provider.value,
+            selected_deployment=selected.model_info.full_id,
             strategy=strategy,
             criteria=criteria,
-            reasoning=f"Selected {selected.model_info.full_id} with score {selected.score:.3f}",
+            reasoning=(
+                f"Selected deployment {selected.model_info.full_id} "
+                f"(model {selected.model_info.logical_model}) with score {selected.score:.3f}"
+            ),
             confidence=selected.score,
             candidates=[c.model_info.full_id for c in candidates],
             candidate_scores={c.model_info.full_id: c.score for c in candidates},
@@ -414,6 +469,21 @@ class LLMRouter:
             raise RouterError(f"Model {model_id} not available")
         
         provider = self._providers[model_id]
+
+        # Substitute specialized prompt for generic root in production infer.
+        if (
+            isinstance(request, CompletionRequest)
+            and request.intent != "measure"
+            and request.root_id
+            and self._prompt_registry
+        ):
+            resolved = self._prompt_registry.resolve_prompt(
+                request.root_id, decision.selected_deployment, request.prompt
+            )
+            if resolved.variant_id and resolved.prompt_text != request.prompt:
+                request.extra["generic_prompt"] = request.prompt
+                request.extra["variant_id"] = resolved.variant_id
+                request.prompt = resolved.prompt_text
         
         # Execute the request based on type
         start_time = time.time()
@@ -544,7 +614,11 @@ class LLMRouter:
         git_commit: Optional[str],
     ) -> RequestMetrics:
         """Create metrics for a request."""
-        from fancy_llm_router.schemas.metrics import RequestMetrics, ModelMetrics
+        from fancy_llm_router.schemas.metrics import (
+            RequestMetrics,
+            ModelMetrics,
+            QualityMetrics,
+        )
         
         # Get token usage
         if hasattr(response, 'usage'):
@@ -557,8 +631,8 @@ class LLMRouter:
         else:
             token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         
-        # Get model info
-        model_info = decision.model_info
+        # Get model info for the deployment that served the request.
+        model_info = self.get_model_info(decision.full_model_id)
         
         # Create metrics
         metrics = RequestMetrics(
@@ -578,6 +652,7 @@ class LLMRouter:
             token_usage=token_usage,
             cost={},  # Would be calculated properly
             latency={},  # Would be calculated properly
+            quality=QualityMetrics(),
             git_commit=git_commit,
             metadata={
                 "routing_decision": decision.dict(),
@@ -616,9 +691,12 @@ class LLMRouter:
         return list(self._models.keys())
     
     def get_model_info(self, model_id: str) -> Optional[ModelInfo]:
-        """Get model information."""
+        """Get model information by deployment id, wire id, or logical name."""
         if model_id in self._models:
             return self._models[model_id].model_info
+        for candidate in self._models.values():
+            if self._matches_requested(candidate, model_id):
+                return candidate.model_info
         return None
     
     async def close(self):

@@ -17,6 +17,7 @@ class ModelProvider(str, Enum):
     OLLAMA = "ollama"
     VLLM = "vllm"
     CUSTOM = "custom"
+    MOCK = "mock"
 
 
 class ModelCapabilities(BaseModel):
@@ -36,6 +37,9 @@ class ModelCapabilities(BaseModel):
     tokens_per_second: Optional[float] = None
     time_to_first_token_ms: Optional[float] = None
 
+    # Weight quantization format (e.g. FP8, FP4, INT4)
+    quantization: Optional[str] = None
+
 
 class ModelPricing(BaseModel):
     """Pricing information for a model."""
@@ -48,12 +52,37 @@ class ModelPricing(BaseModel):
 
 
 class ModelInfo(BaseModel):
-    """Complete information about a model."""
+    """Complete information about a single model deployment.
+
+    Identity is split across three fields so the *same* logical model can be
+    served by multiple sources/hosts at once:
+
+    * ``deployment_id`` - the unique key in the registry/config (e.g.
+      ``qwen3-32b@nebius`` vs ``qwen3-32b@ollama``). This is what the router
+      registers and routes to.
+    * ``model`` - the logical model name a caller asks for (e.g.
+      ``Qwen/Qwen3-32B``). Many deployments can share one logical model.
+    * ``model_id`` - the *wire* identifier sent to the host's API. May differ
+      per source (e.g. ``Qwen/Qwen3-32B`` on Nebius vs ``qwen3:32b`` on Ollama).
+    """
     provider: ModelProvider
-    model_id: str = Field(..., description="Unique identifier for the model")
+    model_id: str = Field(..., description="Wire identifier sent to the host API")
     name: str = Field(..., description="Human-readable name")
     version: Optional[str] = None
     description: Optional[str] = None
+
+    # Identity for multi-source routing.
+    deployment_id: Optional[str] = Field(
+        None,
+        description="Unique deployment key (defaults to '<provider>:<model_id>')",
+    )
+    model: Optional[str] = Field(
+        None,
+        description="Logical model name callers ask for (defaults to model_id)",
+    )
+    source: Optional[str] = Field(
+        None, description="Human label for the hosting source (e.g. nebius, ollama)"
+    )
     
     capabilities: ModelCapabilities
     pricing: ModelPricing
@@ -68,8 +97,15 @@ class ModelInfo(BaseModel):
     
     @property
     def full_id(self) -> str:
-        """Get the full model identifier including provider."""
+        """Unique deployment identifier used as the registry key."""
+        if self.deployment_id:
+            return self.deployment_id
         return f"{self.provider.value}:{self.model_id}"
+
+    @property
+    def logical_model(self) -> str:
+        """The logical model name a caller asks for."""
+        return self.model or self.model_id
     
     def __hash__(self):
         return hash(self.full_id)

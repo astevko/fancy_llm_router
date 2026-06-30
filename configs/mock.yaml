@@ -1,0 +1,42 @@
+# Offline configuration using mock models (no API keys / network required).
+# Useful for testing the routing + metrics pipeline and for load testing with
+# the token burner. Run with:
+#   uv run fancy-llm -c configs/mock.yaml serve
+
+app:
+  name: fancy_llm_router
+  environment: development
+  host: 0.0.0.0
+  port: 8000
+
+router:
+  default_strategy: balanced
+
+storage:
+  backend: sqlite
+  sqlite_path: data/metrics.db
+
+models:
+  mock-fast@mock:
+    model: mock-fast
+    source: mock
+    provider: mock
+    model_id: mock-fast
+    name: Mock Fast
+    context_window: 8192
+    input_token_price: 0.001
+    output_token_price: 0.01
+    tokens_per_second: 1000
+    enabled: true
+
+  mock-large@mock:
+    model: mock-large
+    source: mock
+    provider: mock
+    model_id: mock-large
+    name: Mock Large
+    context_window: 200000
+    input_token_price: 0.01
+    output_token_price: 0.1
+    tokens_per_second: 200
+    enabled: true

@@ -33,6 +33,10 @@ class ModelConfig(BaseModel):
     supports_completions: bool = True
     supports_streaming: bool = True
     supports_embeddings: bool = False
+
+    # Performance and serving characteristics
+    tokens_per_second: Optional[float] = None
+    quantization: Optional[str] = None
     
     # Timeouts
     timeout_seconds: float = 60.0

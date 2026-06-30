@@ -89,8 +89,9 @@ class RoutingDecision(BaseModel):
     session_id: Optional[str] = None
     
     # Selected model
-    selected_model: str
+    selected_model: str  # logical model name the caller asked for
     selected_provider: str
+    selected_deployment: Optional[str] = None  # unique deployment that served it
     
     # Strategy used
     strategy: RoutingStrategy
@@ -117,4 +118,7 @@ class RoutingDecision(BaseModel):
     
     @property
     def full_model_id(self) -> str:
+        """Unique deployment id that served the request (registry key)."""
+        if self.selected_deployment:
+            return self.selected_deployment
         return f"{self.selected_provider}:{self.selected_model}"
